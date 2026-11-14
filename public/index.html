@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f7f8f4" />
+  <title>NammaConnect — Your Local Community, One Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" data-page="home" aria-label="NammaConnect home">
+      <span class="brand-mark">n<span>.</span></span>
+      <span class="brand-name">namma<span>connect</span></span>
+    </a>
+    <nav class="desktop-nav" aria-label="Main navigation">
+      <a href="#" class="nav-link active" data-page="home">Home</a>
+      <a href="#services" class="nav-link" data-page="explore">Explore</a>
+      <a href="#how" class="nav-link" data-page="about">About</a>
+      <a href="#" class="nav-link" data-page="auth" id="navAuthLink">Sign In</a>
+    </nav>
+    <div class="top-actions">
+      <button class="location-pill" id="locationBtn"><span class="pin-dot"></span><span id="locationLabel">Set your location</span><span class="chevron">⌄</span></button>
+      <button class="auth-pill" id="authTopBtn" data-page="auth"><span class="auth-avatar">👤</span><span id="authLabel">Sign In</span></button>
+      <button class="provider-top" data-open="providerModal">List your service <span>↗</span></button>
+      <button class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="home">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEIGHBOURHOOD, CONNECTED</div>
+        <h1>Good things<br>are <em>closer</em> than<br>you think.</h1>
+        <p class="hero-text">Find trusted local services, essential public facilities and community support — all in one place.</p>
+        <div class="hero-search">
+          <span class="search-icon">⌕</span>
+          <input id="globalSearch" type="search" placeholder="What are you looking for today?" aria-label="Search services">
+          <button id="searchBtn">Search <span>→</span></button>
+        </div>
+        <div class="hero-meta">
+          <span><i class="status-dot"></i> Made for your community</span>
+          <span class="meta-divider"></span>
+          <span id="heroLocation">Discover what's around you</span>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div>
+        <div class="map-art">
+          <div class="map-road road-a"></div><div class="map-road road-b"></div><div class="map-road road-c"></div>
+          <div class="map-river"></div>
+          <span class="map-label label-one">YOUR AREA</span><span class="map-label label-two">COMMUNITY</span>
+          <div class="map-pin main-pin"><span>⌖</span></div>
+          <div class="map-pin small-pin pin-hospital">+</div><div class="map-pin small-pin pin-shop">⌂</div><div class="map-pin small-pin pin-help">✳</div>
+          <div class="map-caption"><span class="caption-pulse"></span><div><b>Your community</b><small>Everything nearby, in reach</small></div></div>
+        </div>
+        <div class="floating-note note-top"><span class="note-icon">⌖</span><div><b>Find nearby</b><small>Based on your location</small></div></div>
+        <div class="floating-note note-bottom"><span class="note-icon green">✓</span><div><b>Local & connected</b><small>One platform, many solutions</small></div></div>
+      </div>
+      <div class="hero-bottom"><span>SCROLL TO EXPLORE</span><span class="scroll-line"></span><span>01 / 05</span></div>
+    </section>
+
+    <section class="section services-section" id="services">
+      <div class="section-heading">
+        <div><div class="eyebrow"><span class="eyebrow-line"></span> ONE PLACE. MANY POSSIBILITIES.</div><h2>What do you <em>need</em> today?</h2></div>
+        <p>Everyday help and essential services, thoughtfully brought together for your neighbourhood.</p>
+      </div>
+      <div class="service-grid">
+        <button class="service-card card-public" data-page="public">
+          <span class="card-number">01 / DISCOVER</span><span class="service-icon">⌖</span>
+          <span class="service-title">Public services</span><span class="service-desc">Hospitals, police, fire stations and more.</span><span class="card-arrow">↗</span>
+        </button>
+        <button class="service-card card-blood" data-page="blood">
+          <span class="card-number">02 / SUPPORT</span><span class="service-icon">✳</span>
+          <span class="service-title">Blood donors</span><span class="service-desc">Find nearby donors when every minute matters.</span><span class="card-arrow">↗</span>
+        </button>
+        <button class="service-card card-emergency" data-page="emergency">
+          <span class="card-number">03 / SAFETY</span><span class="service-icon">＋</span>
+          <span class="service-title">Emergency help</span><span class="service-desc">Quick access to help and location sharing.</span><span class="card-arrow">↗</span>
+        </button>
+        <button class="service-card card-local" data-page="local">
+          <span class="card-number">04 / LOCAL</span><span class="service-icon">⌂</span>
+          <span class="service-title">Local services</span><span class="service-desc">Skilled people and businesses around you.</span><span class="card-arrow">↗</span>
+        </button>
+        <button class="service-card card-queue" data-page="queue">
+          <span class="card-number">05 / SAVE TIME</span><span class="service-icon">◷</span>
+          <span class="service-title">Digital queue</span><span class="service-desc">Get a token at participating service centres.</span><span class="card-arrow">↗</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="nearby-section">
+      <div class="nearby-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> A LITTLE CLOSER TO HOME</div>
+        <h2>Find what’s<br><em>around you.</em></h2>
+        <p>Use your current location to discover useful places and services nearby. You stay in control of when location is shared.</p>
+        <button class="button-dark" id="nearbyBtn">Use my current location <span>↗</span></button>
+        <div class="privacy-note"><span>⌖</span> Location access is optional. You can search manually too.</div>
+      </div>
+      <div class="map-panel">
+        <div class="map-panel-head"><div><span class="live-indicator"></span> NEARBY DISCOVERY</div><span id="mapStatus">Location not set</span></div>
+        <div id="map"></div>
+        <div class="map-legend"><span><i class="legend-you"></i> You</span><span><i class="legend-hospital"></i> Hospitals</span><span><i class="legend-police"></i> Police</span><span><i class="legend-fire"></i> Fire</span><span><i class="legend-gov"></i> Government</span><span><i class="legend-local"></i> Local services</span></div>
+      </div>
+    </section>
+
+    <section class="how-section" id="how">
+      <div class="how-heading"><div class="eyebrow"><span class="eyebrow-line"></span> SIMPLE BY DESIGN</div><h2>Community help,<br><em>made simpler.</em></h2></div>
+      <div class="steps">
+        <div class="step"><span>01</span><div class="step-icon">⌖</div><h3>Choose your area</h3><p>Use GPS or enter your village, town or PIN code.</p></div>
+        <div class="step"><span>02</span><div class="step-icon">⌕</div><h3>Find what you need</h3><p>Explore essential services and trusted local listings.</p></div>
+        <div class="step"><span>03</span><div class="step-icon">↗</div><h3>Connect directly</h3><p>View details, get directions or contact the provider.</p></div>
+      </div>
+    </section>
+
+    <section class="provider-banner">
+      <div><div class="eyebrow light"><span class="eyebrow-line"></span> GROW WITH YOUR COMMUNITY</div><h2>Have a skill?<br><em>Make it local.</em></h2><p>Help people nearby discover the service you offer.</p></div>
+      <button class="button-light" data-open="providerModal">Register as a provider <span>↗</span></button>
+      <div class="banner-decoration">n.</div>
+    </section>
+  </main>
+
+  <footer class="footer"><a class="brand footer-brand" href="#"><span class="brand-mark">n<span>.</span></span><span class="brand-name">namma<span>connect</span></span></a><p>Your local community, one platform.</p><span>© 2026 NammaConnect · Built for people, powered by community.</span></footer>
+
+  <!-- Module view -->
+  <div class="module-view hidden" id="moduleView">
+    <div class="module-top"><button class="back-button" id="backHome">← Back to home</button><span class="module-breadcrumb">NAMMACONNECT <b>/</b> <span id="moduleCrumb">EXPLORE</span></span></div>
+    <div class="module-content" id="moduleContent"></div>
+  </div>
+
+  <!-- Location modal -->
+  <div class="modal-backdrop" id="locationModal">
+    <div class="modal">
+      <button class="modal-close" data-close="locationModal">×</button>
+      <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEIGHBOURHOOD</div>
+      <h2>Where should we <em>look?</em></h2>
+      <p>Set a location to see relevant services around you.</p>
+      <button class="button-dark full" id="modalGps">⌖ Detect my current location</button>
+      <div class="or-divider"><span>OR SEARCH MANUALLY</span></div>
+      <label class="field-label" for="manualLocation">Village, town or PIN code</label>
+      <input class="field-input" id="manualLocation" placeholder="e.g. Honnavar, 581334">
+      <button class="button-green full" id="saveManualLocation">Use this location <span>→</span></button>
+      <small class="form-hint">GPS works when you allow location access. Manual location is always available.</small>
+    </div>
+  </div>
+
+  <!-- Provider modal -->
+  <div class="modal-backdrop" id="providerModal">
+    <form class="modal" id="providerForm">
+      <button type="button" class="modal-close" data-close="providerModal">×</button>
+      <div class="eyebrow"><span class="eyebrow-line"></span> JOIN THE DIRECTORY</div>
+      <h2>Put your service <em>on the map.</em></h2>
+      <p>Share your details. Listings are demo-only until connected to the backend and reviewed.</p>
+      <label class="field-label">Your name / business name</label><input class="field-input" name="name" required placeholder="e.g. Ravi Electrical Works">
+      <label class="field-label">Salesman / contact person name</label><input class="field-input" name="salesman" placeholder="e.g. Ravi Sharma (Sales / Service)">
+      <label class="field-label">Service category</label><select class="field-input" name="category" required><option value="">Choose a category</option><option>Plumber</option><option>Electrician</option><option>Carpenter</option><option>Mechanic</option><option>AC repair</option><option>Painter</option><option>Home cleaning</option><option>Computer repair</option><option>Medical store</option><option>Grocery</option><option>Other</option></select>
+      <label class="field-label">Phone number</label><input class="field-input" name="phone" type="tel" required pattern="[0-9+ ()-]{8,18}" placeholder="Your contact number">
+      <label class="field-label">Area / location</label><input class="field-input" name="location" required placeholder="Village or town">
+      <label class="field-label">Short description</label><textarea class="field-input" name="description" rows="3" placeholder="Tell people about your service"></textarea>
+      <button class="button-green full" type="submit">Submit listing <span>→</span></button>
+    </form>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

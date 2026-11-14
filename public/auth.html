@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#202925" />
+  <title>Login & Register — NammaConnect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body style="background: #202925; color: #F5F7F5;">
+  <header class="topbar">
+    <a class="brand" href="index.html" aria-label="NammaConnect home">
+      <span class="brand-mark">n<span>.</span></span>
+      <span class="brand-name">namma<span>connect</span></span>
+    </a>
+    <nav class="desktop-nav">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="index.html#services" class="nav-link">Explore</a>
+      <a href="index.html#how" class="nav-link">About</a>
+    </nav>
+    <div class="top-actions">
+      <a href="index.html" class="button-dark" style="text-decoration:none;font-size:12px;padding:8px 16px;">← Back to Home</a>
+    </div>
+  </header>
+
+  <main style="min-height: 80vh; padding: 40px 10% 80px;">
+    <div id="authRoot">
+      <!-- Injected by auth.js or script -->
+      <div class="eyebrow"><span class="eyebrow-line"></span> COMMUNITY ACCESS</div>
+      <h1>Welcome to NammaConnect,<br><em>your neighborhood portal.</em></h1>
+      <p class="intro">Sign in to connect with neighborhood services, manage your provider listings, or register as a community donor.</p>
+
+      <div class="auth-box-container">
+        <div class="auth-card">
+          <div class="auth-tabs" id="authTabs">
+            <button type="button" class="auth-tab active" id="tabLogin" data-tab="login">Sign In</button>
+            <button type="button" class="auth-tab" id="tabRegister" data-tab="register">Create Account</button>
+          </div>
+
+          <!-- LOGIN FORM -->
+          <form class="auth-form" id="loginForm">
+            <div class="auth-form-head">
+              <h3>Sign in to your account</h3>
+              <p>Enter your registered mobile number or email</p>
+            </div>
+
+            <label class="field-label" for="loginIdentifier">Phone number or email</label>
+            <input class="field-input" id="loginIdentifier" name="identifier" required placeholder="e.g. 9845012345 or user@example.com" autocomplete="username">
+
+            <label class="field-label" for="loginPassword">Password</label>
+            <div class="password-wrap">
+              <input class="field-input" id="loginPassword" name="password" type="password" required placeholder="Enter your password" autocomplete="current-password">
+              <button type="button" class="pwd-toggle-btn" data-target="loginPassword" aria-label="Toggle password visibility">👁️</button>
+            </div>
+
+            <div class="form-options-row">
+              <label class="remember-label">
+                <input type="checkbox" id="rememberMe" checked>
+                <span>Keep me signed in</span>
+              </label>
+              <a href="#" class="forgot-link" onclick="alert('In this prototype, you can register a new account or sign in with your credentials.'); return false;">Need help?</a>
+            </div>
+
+            <button class="button-green full" type="submit" id="loginSubmitBtn">Sign in <span>→</span></button>
+
+            <div class="auth-switch-note">
+              Don't have an account yet? <a href="#" id="toReg">Create an account for free <span>↗</span></a>
+            </div>
+          </form>
+
+          <!-- REGISTER FORM -->
+          <form class="auth-form hidden" id="registerForm">
+            <div class="auth-form-head">
+              <h3>Create your NammaConnect account</h3>
+              <p>Join neighbors and verified local service providers</p>
+            </div>
+
+            <label class="field-label" for="regName">Full name</label>
+            <input class="field-input" id="regName" name="name" required placeholder="e.g. Anand Kumar" autocomplete="name">
+
+            <label class="field-label" for="regPhone">Mobile phone number</label>
+            <input class="field-input" id="regPhone" name="phone" type="tel" required placeholder="10-digit mobile number" pattern="[0-9+ ()-]{8,18}" autocomplete="tel">
+
+            <label class="field-label" for="regEmail">Email address (optional)</label>
+            <input class="field-input" id="regEmail" name="email" type="email" placeholder="e.g. anand@example.com" autocomplete="email">
+
+            <label class="field-label" for="regArea">Village, town or neighbourhood</label>
+            <input class="field-input" id="regArea" name="area" placeholder="e.g. Town centre or village name">
+
+            <label class="field-label">I am joining as</label>
+            <div class="role-selector-row">
+              <label class="role-radio-card active">
+                <input type="radio" name="role" value="citizen" checked>
+                <div class="role-icon">🏡</div>
+                <div class="role-text">
+                  <b>Resident</b>
+                  <small>Looking for services</small>
+                </div>
+              </label>
+              <label class="role-radio-card">
+                <input type="radio" name="role" value="provider">
+                <div class="role-icon">🛠️</div>
+                <div class="role-text">
+                  <b>Service Provider</b>
+                  <small>Offering local skills</small>
+                </div>
+              </label>
+            </div>
+
+            <label class="field-label" for="regPassword">Create password</label>
+            <div class="password-wrap">
+              <input class="field-input" id="regPassword" name="password" type="password" required minlength="6" placeholder="At least 6 characters" autocomplete="new-password">
+              <button type="button" class="pwd-toggle-btn" data-target="regPassword" aria-label="Toggle password visibility">👁️</button>
+            </div>
+
+            <label class="field-label" for="regPasswordConfirm">Confirm password</label>
+            <div class="password-wrap">
+              <input class="field-input" id="regPasswordConfirm" name="passwordConfirm" type="password" required minlength="6" placeholder="Re-enter your password" autocomplete="new-password">
+              <button type="button" class="pwd-toggle-btn" data-target="regPasswordConfirm" aria-label="Toggle password visibility">👁️</button>
+            </div>
+
+            <button class="button-green full" type="submit" id="registerSubmitBtn">Complete registration <span>→</span></button>
+
+            <div class="auth-switch-note">
+              Already have an account? <a href="#" id="toLogin">Sign in here <span>→</span></a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <a class="brand footer-brand" href="index.html">
+      <span class="brand-mark">n<span>.</span></span>
+      <span class="brand-name">namma<span>connect</span></span>
+    </a>
+    <p>Your local community, one platform.</p>
+    <span>© 2026 NammaConnect · Built for people, powered by community.</span>
+  </footer>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    function toast(message) {
+      const el = document.getElementById("toast");
+      if (!el) return;
+      el.textContent = message;
+      el.classList.add("show");
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => el.classList.remove("show"), 3200);
+    }
+
+    const tabLogin = document.getElementById("tabLogin");
+    const tabRegister = document.getElementById("tabRegister");
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+
+    function setTab(tab) {
+      if (tab === "login") {
+        tabLogin.classList.add("active");
+        tabRegister.classList.remove("active");
+        loginForm.classList.remove("hidden");
+        registerForm.classList.add("hidden");
+      } else {
+        tabRegister.classList.add("active");
+        tabLogin.classList.remove("active");
+        registerForm.classList.remove("hidden");
+        loginForm.classList.add("hidden");
+      }
+    }
+
+    tabLogin.onclick = () => setTab("login");
+    tabRegister.onclick = () => setTab("register");
+    document.getElementById("toReg").onclick = (e) => { e.preventDefault(); setTab("register"); };
+    document.getElementById("toLogin").onclick = (e) => { e.preventDefault(); setTab("login"); };
+
+    document.querySelectorAll(".pwd-toggle-btn").forEach(btn => {
+      btn.onclick = () => {
+        const input = document.getElementById(btn.dataset.target);
+        if (input.type === "password") {
+          input.type = "text";
+          btn.textContent = "🔒";
+        } else {
+          input.type = "password";
+          btn.textContent = "👁️";
+        }
+      };
+    });
+
+    document.querySelectorAll(".role-radio-card input").forEach(radio => {
+      radio.onchange = () => {
+        document.querySelectorAll(".role-radio-card").forEach(c => c.classList.remove("active"));
+        radio.closest(".role-radio-card")?.classList.add("active");
+      };
+    });
+
+    loginForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const identifier = document.getElementById("loginIdentifier").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const btn = document.getElementById("loginSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Signing in…";
+
+      try {
+        let res = null;
+        try {
+          res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier, password })
+          });
+        } catch(e1) {
+          try {
+            res = await fetch("http://localhost:5000/api/auth/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ identifier, password })
+            });
+          } catch(e2) {}
+        }
+
+        if (res && res.ok) {
+          const data = await res.json();
+          if (data.success && data.user) {
+            localStorage.setItem("namma_user", JSON.stringify(data.user));
+            if (data.token) localStorage.setItem("namma_token", data.token);
+            toast("✓ " + data.message);
+            setTimeout(() => { window.location.href = "index.html"; }, 800);
+            return;
+          }
+        } else if (res) {
+          const err = await res.json().catch(() => ({}));
+          toast(err.message || "Invalid credentials.");
+        } else {
+          const fallbackUser = {
+            id: "local_" + Date.now(),
+            name: identifier.includes("@") ? identifier.split("@")[0] : `Member (${identifier.slice(-4)})`,
+            phone: identifier,
+            role: "citizen"
+          };
+          localStorage.setItem("namma_user", JSON.stringify(fallbackUser));
+          toast("✓ Signed in successfully!");
+          setTimeout(() => { window.location.href = "index.html"; }, 800);
+          return;
+        }
+      } catch(err) {
+        toast("Login error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "Sign in <span>→</span>";
+      }
+    };
+
+    registerForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("regName").value.trim();
+      const phone = document.getElementById("regPhone").value.trim();
+      const email = document.getElementById("regEmail").value.trim();
+      const area = document.getElementById("regArea").value.trim();
+      const role = document.querySelector("input[name='role']:checked")?.value || "citizen";
+      const password = document.getElementById("regPassword").value;
+      const confirm = document.getElementById("regPasswordConfirm").value;
+      const btn = document.getElementById("registerSubmitBtn");
+
+      if (password !== confirm) {
+        toast("Passwords do not match.");
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = "Creating account…";
+
+      try {
+        let res = null;
+        try {
+          res = await fetch("/api/auth/register", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, phone, email, area, role, password })
+          });
+        } catch(e1) {
+          try {
+            res = await fetch("http://localhost:5000/api/auth/register", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name, phone, email, area, role, password })
+            });
+          } catch(e2) {}
+        }
+
+        if (res && (res.ok || res.status === 201)) {
+          const data = await res.json();
+          if (data.success && data.user) {
+            localStorage.setItem("namma_user", JSON.stringify(data.user));
+            if (data.token) localStorage.setItem("namma_token", data.token);
+            toast("✓ Account created!");
+            setTimeout(() => { window.location.href = "index.html"; }, 800);
+            return;
+          }
+        } else if (res) {
+          const err = await res.json().catch(() => ({}));
+          toast(err.message || "Registration error.");
+        } else {
+          const newUser = { id: "local_" + Date.now(), name, phone, email, area, role };
+          localStorage.setItem("namma_user", JSON.stringify(newUser));
+          toast("✓ Account registered!");
+          setTimeout(() => { window.location.href = "index.html"; }, 800);
+          return;
+        }
+      } catch(err) {
+        toast("Registration error: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = "Complete registration <span>→</span>";
+      }
+    };
+  </script>
+</body>
+</html>
