@@ -198,6 +198,28 @@
       };
     });
 
+    async function requestAuthApi(endpoint, body) {
+      const isBackendHost = window.location.port === "5000";
+      const targets = isBackendHost
+        ? [endpoint, `http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`]
+        : [`http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`, endpoint];
+
+      for (const url of targets) {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          if (res.status === 404 && url === endpoint && !isBackendHost) {
+            continue;
+          }
+          return res;
+        } catch (e) {}
+      }
+      return null;
+    }
+
     loginForm.onsubmit = async (e) => {
       e.preventDefault();
       const identifier = document.getElementById("loginIdentifier").value.trim();
@@ -207,22 +229,7 @@
       btn.textContent = "Signing in…";
 
       try {
-        let res = null;
-        try {
-          res = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ identifier, password })
-          });
-        } catch(e1) {
-          try {
-            res = await fetch("http://localhost:5000/api/auth/login", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ identifier, password })
-            });
-          } catch(e2) {}
-        }
+        const res = await requestAuthApi("/api/auth/login", { identifier, password });
 
         if (res && res.ok) {
           const data = await res.json();
@@ -235,18 +242,15 @@
           }
         } else if (res) {
           const err = await res.json().catch(() => ({}));
-          toast(err.message || "Invalid credentials.");
+          if (err && err.message) {
+            toast(err.message);
+          } else if (res.status === 404) {
+            toast("Backend API endpoint not found. Please ensure Node server is running on http://localhost:5000");
+          } else {
+            toast(`Authentication error (${res.status}). Please check credentials.`);
+          }
         } else {
-          const fallbackUser = {
-            id: "local_" + Date.now(),
-            name: identifier.includes("@") ? identifier.split("@")[0] : `Member (${identifier.slice(-4)})`,
-            phone: identifier,
-            role: "citizen"
-          };
-          localStorage.setItem("namma_user", JSON.stringify(fallbackUser));
-          toast("✓ Signed in successfully!");
-          setTimeout(() => { window.location.href = "index.html"; }, 800);
-          return;
+          toast("Cannot connect to MongoDB backend server. Please verify server is running on http://localhost:5000");
         }
       } catch(err) {
         toast("Login error: " + err.message);
@@ -276,41 +280,28 @@
       btn.textContent = "Creating account…";
 
       try {
-        let res = null;
-        try {
-          res = await fetch("/api/auth/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, phone, email, area, role, password })
-          });
-        } catch(e1) {
-          try {
-            res = await fetch("http://localhost:5000/api/auth/register", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name, phone, email, area, role, password })
-            });
-          } catch(e2) {}
-        }
+        const res = await requestAuthApi("/api/auth/register", { name, phone, email, area, role, password });
 
         if (res && (res.ok || res.status === 201)) {
           const data = await res.json();
           if (data.success && data.user) {
             localStorage.setItem("namma_user", JSON.stringify(data.user));
             if (data.token) localStorage.setItem("namma_token", data.token);
-            toast("✓ Account created!");
+            toast("✓ " + (data.message || "Account registered successfully in MongoDB!"));
             setTimeout(() => { window.location.href = "index.html"; }, 800);
             return;
           }
         } else if (res) {
           const err = await res.json().catch(() => ({}));
-          toast(err.message || "Registration error.");
+          if (err && err.message) {
+            toast(err.message);
+          } else if (res.status === 404) {
+            toast("Backend API endpoint not found. Please ensure Node server is running on http://localhost:5000");
+          } else {
+            toast(`Registration failed (${res.status}). Please check details.`);
+          }
         } else {
-          const newUser = { id: "local_" + Date.now(), name, phone, email, area, role };
-          localStorage.setItem("namma_user", JSON.stringify(newUser));
-          toast("✓ Account registered!");
-          setTimeout(() => { window.location.href = "index.html"; }, 800);
-          return;
+          toast("Cannot connect to MongoDB backend server. Please verify server is running on http://localhost:5000");
         }
       } catch(err) {
         toast("Registration error: " + err.message);

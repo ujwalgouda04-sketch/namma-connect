@@ -1010,6 +1010,32 @@ function bindAuthModule(){
     toast("In this prototype, you can register a new account or sign in with your credentials.");
   });
 
+  // Smart Auth API requester that supports both localhost:5000 and Live Server (port 5500/5502)
+  async function requestAuthApi(endpoint, body) {
+    const isBackendHost = window.location.port === "5000";
+    const targets = isBackendHost
+      ? [endpoint, `http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`]
+      : [`http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`, endpoint];
+
+    for (const url of targets) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        // If static file server (like VS Code Live Server) returns 404 for an API route, try next target
+        if (res.status === 404 && url === endpoint && !isBackendHost) {
+          continue;
+        }
+        return res;
+      } catch (e) {
+        // Continue to fallback url
+      }
+    }
+    return null;
+  }
+
   // Handle Login Submit
   $("#loginForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1028,22 +1054,7 @@ function bindAuthModule(){
     }
 
     try {
-      let res = null;
-      try {
-        res = await fetch("/api/auth/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ identifier, password })
-        });
-      } catch (fErr) {
-        try {
-          res = await fetch("http://localhost:5000/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ identifier, password })
-          });
-        } catch (e2) {}
-      }
+      const res = await requestAuthApi("/api/auth/login", { identifier, password });
 
       if (res && res.ok) {
         const data = await res.json();
@@ -1052,35 +1063,26 @@ function bindAuthModule(){
           localStorage.setItem("namma_user", JSON.stringify(currentUser));
           if (data.token) localStorage.setItem("namma_token", data.token);
           updateAuthUI();
-          toast("✓ " + (data.message || "Logged in successfully!"));
+          toast("✓ " + (data.message || "Logged in successfully from MongoDB!"));
           setTimeout(() => showModule("auth"), 500);
           return;
         } else {
-          toast(data.message || "Login failed. Please check your credentials.");
+          toast(data.message || "Login failed. Please check your credentials in MongoDB.");
         }
       } else if (res) {
         const errData = await res.json().catch(() => ({}));
-        toast(errData.message || "Incorrect credentials. Please try again.");
+        if (errData && errData.message) {
+          toast(errData.message);
+        } else if (res.status === 404) {
+          toast("Backend API endpoint not found. Please ensure Node server is running on http://localhost:5000");
+        } else {
+          toast(`Authentication error (${res.status}). Please check credentials.`);
+        }
       } else {
-        // Resilient client-side login fallback
-        const cleanPhone = identifier.replace(/[^0-9+]/g, "");
-        const fallbackUser = {
-          id: "local_" + Date.now(),
-          name: identifier.includes("@") ? identifier.split("@")[0] : `Member (${identifier.slice(-4)})`,
-          phone: cleanPhone || identifier,
-          email: identifier.includes("@") ? identifier : "",
-          area: currentLocationName || "Local Area",
-          role: "citizen"
-        };
-        currentUser = fallbackUser;
-        localStorage.setItem("namma_user", JSON.stringify(currentUser));
-        updateAuthUI();
-        toast("✓ Signed in successfully!");
-        setTimeout(() => showModule("auth"), 500);
-        return;
+        toast("Cannot connect to MongoDB backend server. Please start the server on http://localhost:5000");
       }
     } catch (err) {
-      toast("Login failed: " + err.message);
+      toast("MongoDB Login Error: " + err.message);
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -1089,7 +1091,7 @@ function bindAuthModule(){
     }
   });
 
-  // Handle Register Submit
+  // Handle Register Submit - Strictly writes to MongoDB
   $("#registerForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("#regName").value.trim();
@@ -1113,26 +1115,11 @@ function bindAuthModule(){
 
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.textContent = "Creating account…";
+      submitBtn.textContent = "Saving to MongoDB…";
     }
 
     try {
-      let res = null;
-      try {
-        res = await fetch("/api/auth/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, phone, email, area, role, password })
-        });
-      } catch (fErr) {
-        try {
-          res = await fetch("http://localhost:5000/api/auth/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, phone, email, area, role, password })
-          });
-        } catch (e2) {}
-      }
+      const res = await requestAuthApi("/api/auth/register", { name, phone, email, area, role, password });
 
       if (res && (res.ok || res.status === 201)) {
         const data = await res.json();
@@ -1141,34 +1128,26 @@ function bindAuthModule(){
           localStorage.setItem("namma_user", JSON.stringify(currentUser));
           if (data.token) localStorage.setItem("namma_token", data.token);
           updateAuthUI();
-          toast("✓ Account registered successfully!");
+          toast("✓ Account registered successfully in MongoDB!");
           setTimeout(() => showModule("auth"), 500);
           return;
         } else {
-          toast(data.message || "Registration failed.");
+          toast(data.message || "MongoDB registration failed.");
         }
       } else if (res) {
         const errData = await res.json().catch(() => ({}));
-        toast(errData.message || "Registration error. Phone number may already be in use.");
+        if (errData && errData.message) {
+          toast(errData.message);
+        } else if (res.status === 404) {
+          toast("Backend API endpoint not found. Please ensure Node server is running on http://localhost:5000");
+        } else {
+          toast(`Registration failed (${res.status}). Please check details.`);
+        }
       } else {
-        // Resilient client-side registration fallback
-        const newUser = {
-          id: "local_" + Date.now(),
-          name,
-          phone,
-          email,
-          area: area || currentLocationName || "Local Area",
-          role
-        };
-        currentUser = newUser;
-        localStorage.setItem("namma_user", JSON.stringify(currentUser));
-        updateAuthUI();
-        toast("✓ Account registered successfully!");
-        setTimeout(() => showModule("auth"), 500);
-        return;
+        toast("Cannot connect to MongoDB backend server. Please start the server on http://localhost:5000");
       }
     } catch (err) {
-      toast("Registration failed: " + err.message);
+      toast("MongoDB Registration Error: " + err.message);
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
