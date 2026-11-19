@@ -12,12 +12,12 @@ const UserSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-UserSchema.methods.setPassword = function(password) {
+UserSchema.methods.setPassword = function (password) {
   this.salt = crypto.randomBytes(16).toString("hex");
   this.passwordHash = crypto.scryptSync(password, this.salt, 64).toString("hex");
 };
 
-UserSchema.methods.validatePassword = function(password) {
+UserSchema.methods.validatePassword = function (password) {
   const hash = crypto.scryptSync(password, this.salt, 64).toString("hex");
   return this.passwordHash === hash;
 };

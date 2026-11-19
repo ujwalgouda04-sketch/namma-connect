@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
-const crypto = require("crypto");
 const mongoose = require("mongoose");
 const User = require("../models/User");
+const { signUserToken } = require("../middleware/auth");
 
 function generateToken(userId) {
-  return crypto.randomBytes(32).toString("hex");
+  return signUserToken(userId);
 }
 
 function checkDbConnection(res) {

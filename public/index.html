@@ -3,169 +3,496 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#f7f8f4" />
-  <title>NammaConnect — Your Local Community, One Platform</title>
+  <meta name="theme-color" content="#07120d" />
+  <title>Namma Connect — Your Local Community, Always Connected</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="#" data-page="home" aria-label="NammaConnect home">
-      <span class="brand-mark">n<span>.</span></span>
-      <span class="brand-name">namma<span>connect</span></span>
+<body class="nc-dark-theme nc-refined">
+
+  <!-- DEEP FOREST GREEN NAVIGATION BAR -->
+  <header class="topbar" id="topbar">
+    <a class="brand" href="#home" data-page="home" aria-label="Namma Connect home">
+      <span class="brand-mark">
+        <i data-lucide="map-pin"></i>
+      </span>
+      <span class="brand-name">Namma<span>Connect</span></span>
     </a>
+
     <nav class="desktop-nav" aria-label="Main navigation">
-      <a href="#" class="nav-link active" data-page="home">Home</a>
-      <a href="#services" class="nav-link" data-page="explore">Explore</a>
-      <a href="#how" class="nav-link" data-page="about">About</a>
-      <a href="#" class="nav-link" data-page="auth" id="navAuthLink">Sign In</a>
+      <a href="#home" class="nav-link active" data-page="home">Home</a>
+      <a href="#services" class="nav-link" data-page="services">Services</a>
+      <a href="#mapSection" class="nav-link" data-page="map">Map</a>
+      <a href="#about" class="nav-link" data-page="about">About</a>
     </nav>
+
     <div class="top-actions">
-      <button class="location-pill" id="locationBtn"><span class="pin-dot"></span><span id="locationLabel">Set your location</span><span class="chevron">⌄</span></button>
-      <button class="auth-pill" id="authTopBtn" data-page="auth"><span class="auth-avatar">👤</span><span id="authLabel">Sign In</span></button>
-      <button class="provider-top" data-open="providerModal">List your service <span>↗</span></button>
-      <button class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button>
+      <button class="location-pill" id="locationBtn" type="button" title="Select or detect location">
+        <span class="pin-dot"></span>
+        <span id="locationLabel">Set location</span>
+        <i data-lucide="chevron-down" class="chevron-svg"></i>
+      </button>
+
+      <div class="notif-wrap">
+        <button class="icon-glass-btn" id="notifBtn" type="button" aria-label="Status & updates" aria-expanded="false" title="Activity & status">
+          <i data-lucide="bell"></i>
+          <span class="notif-dot" id="notifDot"></span>
+        </button>
+        <div class="notif-popover hidden" id="notifPopover" role="dialog" aria-label="Live status notifications">
+          <div class="notif-pop-head">
+            <span>Status &amp; Updates</span>
+            <button type="button" class="notif-close-btn" id="notifCloseBtn" aria-label="Close notifications">×</button>
+          </div>
+          <div class="notif-pop-body" id="notifList"></div>
+        </div>
+      </div>
+
+      <button class="auth-pill" id="authTopBtn" data-page="auth" type="button" title="Account & Sign In">
+        <span class="auth-avatar" aria-hidden="true">
+          <i data-lucide="key-round"></i>
+        </span>
+        <span id="authLabel">Sign In</span>
+      </button>
+
+      <button class="menu-toggle" id="menuToggle" type="button" aria-label="Toggle mobile menu" aria-expanded="false">
+        <i data-lucide="menu"></i>
+      </button>
     </div>
   </header>
 
+  <!-- MOBILE NAVIGATION DRAWER -->
+  <div class="mobile-nav-drawer hidden" id="mobileNavDrawer" aria-label="Mobile navigation">
+    <a href="#home" class="mobile-nav-link" data-page="home">Home</a>
+    <a href="#services" class="mobile-nav-link" data-page="services">Services</a>
+    <a href="#mapSection" class="mobile-nav-link" data-page="map">Live Map</a>
+    <a href="#about" class="mobile-nav-link" data-page="about">About</a>
+    <a href="#" class="mobile-nav-link" data-page="auth" id="navAuthLink">Sign In / Account</a>
+    <button type="button" class="mobile-nav-cta" data-open="providerModal">List Your Service</button>
+  </div>
+
   <main>
-    <section class="hero" id="home">
-      <div class="hero-copy">
-        <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEIGHBOURHOOD, CONNECTED</div>
-        <h1>Good things<br>are <em>closer</em> than<br>you think.</h1>
-        <p class="hero-text">Find trusted local services, essential public facilities and community support — all in one place.</p>
-        <div class="hero-search">
-          <span class="search-icon">⌕</span>
-          <input id="globalSearch" type="search" placeholder="What are you looking for today?" aria-label="Search services">
-          <button id="searchBtn">Search <span>→</span></button>
+    <!-- COASTAL SUNSET HERO (No lighthouse, tower, or artificial structures) -->
+    <section class="hero-cinema" id="home">
+      <div class="hero-bg-layer" aria-hidden="true"></div>
+      <div class="hero-gradient-overlay" aria-hidden="true"></div>
+
+      <div class="hero-inner">
+        <div class="hero-badge-pill">
+          <span class="live-beacon"></span>
+          COMMUNITY SERVICES DIRECTORY
         </div>
-        <div class="hero-meta">
-          <span><i class="status-dot"></i> Made for your community</span>
-          <span class="meta-divider"></span>
-          <span id="heroLocation">Discover what's around you</span>
+
+        <h1 class="hero-headline">
+          Your Local Community,<br>Always <span class="neon-accent">Connected</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Find hospitals, blood donors, emergency help, local services and public resources — all in one place.
+        </p>
+
+        <div class="hero-search-glass" role="search">
+          <div class="search-input-group">
+            <i data-lucide="search" class="search-lead-icon"></i>
+            <input id="globalSearch" type="search" placeholder="Search hospitals, blood donors, electricians, police, schemes…" aria-label="Search community services" />
+          </div>
+          <div class="search-btn-group">
+            <button type="button" class="btn-use-location" id="heroLocationBtn" title="Detect current GPS location">
+              <i data-lucide="locate-fixed"></i>
+              <span>Use My Location</span>
+            </button>
+            <button type="button" class="btn-neon-search" id="searchBtn">
+              <span>Search</span>
+              <i data-lucide="arrow-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="hero-status-row">
+          <span class="hero-status-chip">
+            <i class="status-dot"></i>
+            <span id="heroLocation">Detecting your local area…</span>
+          </span>
+          <span class="hero-status-sep">·</span>
+          <span class="hero-status-chip">Live OpenStreetMap &amp; MongoDB backed</span>
         </div>
       </div>
-      <div class="hero-visual">
-        <div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div>
-        <div class="map-art">
-          <div class="map-road road-a"></div><div class="map-road road-b"></div><div class="map-road road-c"></div>
-          <div class="map-river"></div>
-          <span class="map-label label-one">YOUR AREA</span><span class="map-label label-two">COMMUNITY</span>
-          <div class="map-pin main-pin"><span>⌖</span></div>
-          <div class="map-pin small-pin pin-hospital">+</div><div class="map-pin small-pin pin-shop">⌂</div><div class="map-pin small-pin pin-help">✳</div>
-          <div class="map-caption"><span class="caption-pulse"></span><div><b>Your community</b><small>Everything nearby, in reach</small></div></div>
+    </section>
+
+    <!-- MAIN SERVICES BENTO: 6 CLEAN CARDS + EMERGENCY PANEL -->
+    <section class="nc-section services-dashboard" id="services">
+      <div class="nc-container">
+        <div class="section-header-row">
+          <div>
+            <div class="nc-eyebrow"><span class="eyebrow-bar"></span> ESSENTIAL SERVICES</div>
+            <h2 class="section-title">Explore Local <span class="text-glow-green">Services</span></h2>
+          </div>
+          <p class="section-desc">Direct access to nearby hospitals, phone-verified blood donors, emergency helplines, skilled local services, and civic resources.</p>
         </div>
-        <div class="floating-note note-top"><span class="note-icon">⌖</span><div><b>Find nearby</b><small>Based on your location</small></div></div>
-        <div class="floating-note note-bottom"><span class="note-icon green">✓</span><div><b>Local & connected</b><small>One platform, many solutions</small></div></div>
+
+        <div class="dashboard-bento">
+          <!-- LEFT: 6 SERVICE CARDS (Consistent Lucide Icons, Subtle Borders) -->
+          <div class="service-cards-grid">
+
+            <!-- 1. Hospital Finder -->
+            <button type="button" class="glow-service-card theme-emerald" data-page="hospitals">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="hospital"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Hospital Finder</h3>
+              <p class="gcard-desc">Search nearby hospitals, filter by specialty, view facility details, and get map directions.</p>
+              <span class="gcard-cta">Find hospitals</span>
+            </button>
+
+            <!-- 2. Blood Donor Directory -->
+            <button type="button" class="glow-service-card theme-crimson" data-page="blood">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="droplet"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Blood Donor Directory</h3>
+              <p class="gcard-desc">Filter voluntary blood donors by blood group and city, check availability, and reach consented contacts.</p>
+              <span class="gcard-cta">Browse donors</span>
+            </button>
+
+            <!-- 3. Emergency Assistance -->
+            <button type="button" class="glow-service-card theme-orange" data-page="emergency">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="shield-alert"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Emergency Assistance</h3>
+              <p class="gcard-desc">Quick SOS GPS sharing, emergency contacts, and immediate ambulance, police, and fire numbers.</p>
+              <span class="gcard-cta">Open SOS hub</span>
+            </button>
+
+            <!-- 4. Local Services -->
+            <button type="button" class="glow-service-card theme-purple" data-page="local">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="wrench"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Local Services</h3>
+              <p class="gcard-desc">Find electricians, plumbers, mechanics, and technicians around you with direct call and WhatsApp.</p>
+              <span class="gcard-cta">Browse directory</span>
+            </button>
+
+            <!-- 5. Digital Queue -->
+            <button type="button" class="glow-service-card theme-blue" data-page="queue">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="clock"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Digital Queue</h3>
+              <p class="gcard-desc">Generate a service queue token with estimated wait time for participating clinics and counters.</p>
+              <span class="gcard-cta">Book queue token</span>
+            </button>
+
+            <!-- 6. Public Information -->
+            <button type="button" class="glow-service-card theme-violet" data-page="public">
+              <div class="gcard-top">
+                <span class="gcard-icon"><i data-lucide="landmark"></i></span>
+                <span class="gcard-arrow" aria-hidden="true"><i data-lucide="arrow-up-right"></i></span>
+              </div>
+              <h3 class="gcard-title">Public Information</h3>
+              <p class="gcard-desc">Government schemes, civic offices, official helplines, and essential document checklists.</p>
+              <span class="gcard-cta">View civic info</span>
+            </button>
+
+          </div>
+
+          <!-- RIGHT: EMERGENCY ASSISTANCE PANEL -->
+          <aside class="emergency-panel" aria-label="Emergency Assistance Helplines">
+            <div class="emg-panel-head">
+              <span class="emg-live-pill"><span class="emg-pulse-dot"></span> 24/7 HELPLINE</span>
+              <h3>Emergency Assistance</h3>
+              <p>Tap any service below to place a direct emergency call immediately.</p>
+            </div>
+
+            <div class="emg-call-list">
+              <a href="tel:108" class="emg-call-item" aria-label="Call Ambulance 108">
+                <div class="emg-item-left">
+                  <span class="emg-item-icon"><i data-lucide="ambulance"></i></span>
+                  <div>
+                    <strong>Ambulance</strong>
+                    <small>Medical Emergency</small>
+                  </div>
+                </div>
+                <span class="emg-number-btn"><i data-lucide="phone"></i> 108</span>
+              </a>
+
+              <a href="tel:100" class="emg-call-item" aria-label="Call Police 100">
+                <div class="emg-item-left">
+                  <span class="emg-item-icon"><i data-lucide="shield"></i></span>
+                  <div>
+                    <strong>Police</strong>
+                    <small>Law &amp; Safety</small>
+                  </div>
+                </div>
+                <span class="emg-number-btn"><i data-lucide="phone"></i> 100</span>
+              </a>
+
+              <a href="tel:101" class="emg-call-item" aria-label="Call Fire Service 101">
+                <div class="emg-item-left">
+                  <span class="emg-item-icon"><i data-lucide="flame"></i></span>
+                  <div>
+                    <strong>Fire Service</strong>
+                    <small>Fire &amp; Rescue</small>
+                  </div>
+                </div>
+                <span class="emg-number-btn"><i data-lucide="phone"></i> 101</span>
+              </a>
+            </div>
+
+            <button type="button" class="emg-sos-link" data-page="emergency">
+              <i data-lucide="navigation"></i>
+              Share Live GPS Location / SOS
+            </button>
+          </aside>
+        </div>
+
+        <!-- CLEAN BLOOD DONOR REGISTRATION CTA BANNER (No human illustrations) -->
+        <div class="blood-cta-strip" role="region" aria-label="Become a Blood Donor">
+          <div class="blood-cta-left">
+            <span class="blood-cta-icon"><i data-lucide="heart-pulse"></i></span>
+            <div>
+              <span class="blood-cta-kicker">VOLUNTARY BLOOD DONATION</span>
+              <h2>Become a Blood Donor</h2>
+              <p>Register with mobile OTP verification, manage your availability anytime, and choose whether to share your contact details publicly.</p>
+            </div>
+          </div>
+          <div class="blood-cta-actions">
+            <button type="button" class="btn-blood-register" data-page="blood-register">
+              Register as Donor
+              <i data-lucide="arrow-right"></i>
+            </button>
+            <button type="button" class="btn-blood-outline" data-page="blood">
+              View Directory
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="hero-bottom"><span>SCROLL TO EXPLORE</span><span class="scroll-line"></span><span>01 / 05</span></div>
     </section>
 
-    <section class="section services-section" id="services">
-      <div class="section-heading">
-        <div><div class="eyebrow"><span class="eyebrow-line"></span> ONE PLACE. MANY POSSIBILITIES.</div><h2>What do you <em>need</em> today?</h2></div>
-        <p>Everyday help and essential services, thoughtfully brought together for your neighbourhood.</p>
-      </div>
-      <div class="service-grid">
-        <button class="service-card card-public" data-page="public">
-          <span class="card-number">01 / DISCOVER</span><span class="service-icon">⌖</span>
-          <span class="service-title">Public services</span><span class="service-desc">Hospitals, police, fire stations and more.</span><span class="card-arrow">↗</span>
-        </button>
-        <button class="service-card card-blood" data-page="blood">
-          <span class="card-number">02 / SUPPORT</span><span class="service-icon">✳</span>
-          <span class="service-title">Blood donors</span><span class="service-desc">Find nearby donors when every minute matters.</span><span class="card-arrow">↗</span>
-        </button>
-        <button class="service-card card-emergency" data-page="emergency">
-          <span class="card-number">03 / SAFETY</span><span class="service-icon">＋</span>
-          <span class="service-title">Emergency help</span><span class="service-desc">Quick access to help and location sharing.</span><span class="card-arrow">↗</span>
-        </button>
-        <button class="service-card card-local" data-page="local">
-          <span class="card-number">04 / LOCAL</span><span class="service-icon">⌂</span>
-          <span class="service-title">Local services</span><span class="service-desc">Skilled people and businesses around you.</span><span class="card-arrow">↗</span>
-        </button>
-        <button class="service-card card-queue" data-page="queue">
-          <span class="card-number">05 / SAVE TIME</span><span class="service-icon">◷</span>
-          <span class="service-title">Digital queue</span><span class="service-desc">Get a token at participating service centres.</span><span class="card-arrow">↗</span>
-        </button>
+    <!-- INTERACTIVE NEARBY DISCOVERY MAP SECTION -->
+    <section class="nc-section map-discovery-section" id="mapSection">
+      <div class="nc-container">
+        <div class="nearby-glass-grid">
+          <div class="nearby-copy-col">
+            <div class="nc-eyebrow"><span class="eyebrow-bar"></span> LIVE GEOLOCATION</div>
+            <h2 class="section-title">Find what's <span class="text-glow-green">around you.</span></h2>
+            <p class="section-desc">Use GPS or search manually to locate nearby hospitals, police stations, fire stations, and government offices directly on the map.</p>
+            <div class="nearby-btn-row">
+              <button class="btn-neon-primary" id="nearbyBtn" type="button">
+                <i data-lucide="locate-fixed"></i>
+                Use my current location
+              </button>
+              <button class="btn-glass-outline" type="button" data-open="locationModal">Set manually</button>
+            </div>
+            <div class="privacy-note-glass">
+              <i data-lucide="shield-check"></i>
+              Location access is optional — manual town or PIN search is always available.
+            </div>
+          </div>
+
+          <div class="map-panel-glass">
+            <div class="map-panel-head">
+              <div class="map-head-title"><span class="live-indicator"></span> NEARBY DISCOVERY MAP</div>
+              <span class="map-status-badge" id="mapStatus">Location not set</span>
+            </div>
+            <div id="map"></div>
+            <div class="map-legend">
+              <span><i class="legend-you"></i> You</span>
+              <span><i class="legend-hospital"></i> Hospitals</span>
+              <span><i class="legend-police"></i> Police</span>
+              <span><i class="legend-fire"></i> Fire</span>
+              <span><i class="legend-gov"></i> Government</span>
+              <span><i class="legend-local"></i> Local services</span>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="nearby-section">
-      <div class="nearby-copy">
-        <div class="eyebrow"><span class="eyebrow-line"></span> A LITTLE CLOSER TO HOME</div>
-        <h2>Find what’s<br><em>around you.</em></h2>
-        <p>Use your current location to discover useful places and services nearby. You stay in control of when location is shared.</p>
-        <button class="button-dark" id="nearbyBtn">Use my current location <span>↗</span></button>
-        <div class="privacy-note"><span>⌖</span> Location access is optional. You can search manually too.</div>
-      </div>
-      <div class="map-panel">
-        <div class="map-panel-head"><div><span class="live-indicator"></span> NEARBY DISCOVERY</div><span id="mapStatus">Location not set</span></div>
-        <div id="map"></div>
-        <div class="map-legend"><span><i class="legend-you"></i> You</span><span><i class="legend-hospital"></i> Hospitals</span><span><i class="legend-police"></i> Police</span><span><i class="legend-fire"></i> Fire</span><span><i class="legend-gov"></i> Government</span><span><i class="legend-local"></i> Local services</span></div>
-      </div>
-    </section>
+    <!-- ABOUT / HOW IT WORKS + PROVIDER CTA -->
+    <section class="nc-section about-section" id="about">
+      <div class="nc-container">
+        <div class="section-header-row">
+          <div>
+            <div class="nc-eyebrow"><span class="eyebrow-bar"></span> SIMPLE BY DESIGN</div>
+            <h2 class="section-title">Community help, <span class="text-glow-green">made practical.</span></h2>
+          </div>
+          <p class="section-desc">Built for everyday reliability — locate essential services, check real availability, and connect directly.</p>
+        </div>
 
-    <section class="how-section" id="how">
-      <div class="how-heading"><div class="eyebrow"><span class="eyebrow-line"></span> SIMPLE BY DESIGN</div><h2>Community help,<br><em>made simpler.</em></h2></div>
-      <div class="steps">
-        <div class="step"><span>01</span><div class="step-icon">⌖</div><h3>Choose your area</h3><p>Use GPS or enter your village, town or PIN code.</p></div>
-        <div class="step"><span>02</span><div class="step-icon">⌕</div><h3>Find what you need</h3><p>Explore essential services and trusted local listings.</p></div>
-        <div class="step"><span>03</span><div class="step-icon">↗</div><h3>Connect directly</h3><p>View details, get directions or contact the provider.</p></div>
-      </div>
-    </section>
+        <div class="steps-glass-grid">
+          <div class="step-glass-card">
+            <span class="step-num">01</span>
+            <div class="step-icon-box"><i data-lucide="map-pin"></i></div>
+            <h3>Set your area</h3>
+            <p>Detect via browser GPS or enter your village, town, or PIN code manually.</p>
+          </div>
 
-    <section class="provider-banner">
-      <div><div class="eyebrow light"><span class="eyebrow-line"></span> GROW WITH YOUR COMMUNITY</div><h2>Have a skill?<br><em>Make it local.</em></h2><p>Help people nearby discover the service you offer.</p></div>
-      <button class="button-light" data-open="providerModal">Register as a provider <span>↗</span></button>
-      <div class="banner-decoration">n.</div>
+          <div class="step-glass-card">
+            <span class="step-num">02</span>
+            <div class="step-icon-box"><i data-lucide="search"></i></div>
+            <h3>Filter &amp; inspect</h3>
+            <p>Browse live OpenStreetMap facilities, blood donor listings, civic schemes, and local trades.</p>
+          </div>
+
+          <div class="step-glass-card">
+            <span class="step-num">03</span>
+            <div class="step-icon-box"><i data-lucide="phone-call"></i></div>
+            <h3>Connect directly</h3>
+            <p>Call emergency helplines, message service providers on WhatsApp, or open live directions.</p>
+          </div>
+        </div>
+
+        <div class="provider-glass-banner">
+          <div>
+            <div class="nc-eyebrow"><span class="eyebrow-bar"></span> LOCAL DIRECTORY</div>
+            <h2>Offer a local service? <span>List it here.</span></h2>
+            <p>Register your trade or neighborhood service so nearby residents can find and contact you directly.</p>
+          </div>
+          <button type="button" class="btn-neon-primary" data-open="providerModal">
+            Register as a Provider
+            <i data-lucide="arrow-up-right"></i>
+          </button>
+        </div>
+      </div>
     </section>
   </main>
 
-  <footer class="footer"><a class="brand footer-brand" href="#"><span class="brand-mark">n<span>.</span></span><span class="brand-name">namma<span>connect</span></span></a><p>Your local community, one platform.</p><span>© 2026 NammaConnect · Built for people, powered by community.</span></footer>
+  <footer class="footer">
+    <div class="nc-container footer-inner">
+      <a class="brand footer-brand" href="#home" data-page="home">
+        <span class="brand-mark"><i data-lucide="map-pin"></i></span>
+        <span class="brand-name">Namma<span>Connect</span></span>
+      </a>
+      <p class="footer-tagline">Your local community, always connected.</p>
+      <span class="footer-copy">© 2026 Namma Connect · Built for local communities.</span>
+    </div>
+  </footer>
 
-  <!-- Module view -->
+  <!-- MODULE VIEW (All Sub-Pages: Hospitals, Hospital Details, Blood Donors, Donor Registration, Emergency, Local, Queue, Public Info, Auth) -->
   <div class="module-view hidden" id="moduleView">
-    <div class="module-top"><button class="back-button" id="backHome">← Back to home</button><span class="module-breadcrumb">NAMMACONNECT <b>/</b> <span id="moduleCrumb">EXPLORE</span></span></div>
+    <div class="module-top">
+      <button class="back-button" id="backHome" type="button">
+        <i data-lucide="arrow-left"></i> Back to home
+      </button>
+      <span class="module-breadcrumb">NAMMA CONNECT <b>/</b> <span id="moduleCrumb">EXPLORE</span></span>
+    </div>
     <div class="module-content" id="moduleContent"></div>
   </div>
 
-  <!-- Location modal -->
+  <!-- LOCATION MODAL -->
   <div class="modal-backdrop" id="locationModal">
     <div class="modal">
-      <button class="modal-close" data-close="locationModal">×</button>
+      <button type="button" class="modal-close" data-close="locationModal" aria-label="Close">×</button>
       <div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEIGHBOURHOOD</div>
       <h2>Where should we <em>look?</em></h2>
-      <p>Set a location to see relevant services around you.</p>
-      <button class="button-dark full" id="modalGps">⌖ Detect my current location</button>
+      <p>Set your location to discover nearby hospitals, civic offices, and community services.</p>
+      <button type="button" class="button-dark full" id="modalGps">Detect my current location</button>
       <div class="or-divider"><span>OR SEARCH MANUALLY</span></div>
       <label class="field-label" for="manualLocation">Village, town or PIN code</label>
-      <input class="field-input" id="manualLocation" placeholder="e.g. Honnavar, 581334">
-      <button class="button-green full" id="saveManualLocation">Use this location <span>→</span></button>
-      <small class="form-hint">GPS works when you allow location access. Manual location is always available.</small>
+      <input class="field-input" id="manualLocation" placeholder="e.g. Honnavar, Mangaluru, 581334" />
+      <button type="button" class="button-green full" id="saveManualLocation">Use this location <span>→</span></button>
+      <small class="form-hint">GPS requires permission on HTTPS or localhost. Manual search is always available.</small>
     </div>
   </div>
 
-  <!-- Provider modal -->
+  <!-- PROVIDER REGISTRATION MODAL -->
   <div class="modal-backdrop" id="providerModal">
     <form class="modal" id="providerForm">
-      <button type="button" class="modal-close" data-close="providerModal">×</button>
+      <button type="button" class="modal-close" data-close="providerModal" aria-label="Close">×</button>
       <div class="eyebrow"><span class="eyebrow-line"></span> JOIN THE DIRECTORY</div>
-      <h2>Put your service <em>on the map.</em></h2>
-      <p>Share your details. Listings are demo-only until connected to the backend and reviewed.</p>
-      <label class="field-label">Your name / business name</label><input class="field-input" name="name" required placeholder="e.g. Ravi Electrical Works">
-      <label class="field-label">Salesman / contact person name</label><input class="field-input" name="salesman" placeholder="e.g. Ravi Sharma (Sales / Service)">
-      <label class="field-label">Service category</label><select class="field-input" name="category" required><option value="">Choose a category</option><option>Plumber</option><option>Electrician</option><option>Carpenter</option><option>Mechanic</option><option>AC repair</option><option>Painter</option><option>Home cleaning</option><option>Computer repair</option><option>Medical store</option><option>Grocery</option><option>Other</option></select>
-      <label class="field-label">Phone number</label><input class="field-input" name="phone" type="tel" required pattern="[0-9+ ()-]{8,18}" placeholder="Your contact number">
-      <label class="field-label">Area / location</label><input class="field-input" name="location" required placeholder="Village or town">
-      <label class="field-label">Short description</label><textarea class="field-input" name="description" rows="3" placeholder="Tell people about your service"></textarea>
+      <h2>List your local <em>service.</em></h2>
+      <p>Share your details so residents in your area can reach you directly.</p>
+      <label class="field-label">Business / service name</label>
+      <input class="field-input" name="name" required placeholder="e.g. Ravi Electrical Works" />
+      <label class="field-label">Contact person name</label>
+      <input class="field-input" name="salesman" placeholder="e.g. Ravi Sharma" />
+      <label class="field-label">Service category</label>
+      <select class="field-input" name="category" required>
+        <option value="">Choose a category</option>
+        <option>Plumber</option>
+        <option>Electrician</option>
+        <option>Carpenter</option>
+        <option>Mechanic</option>
+        <option>AC repair</option>
+        <option>Painter</option>
+        <option>Home cleaning</option>
+        <option>Computer repair</option>
+        <option>Medical store</option>
+        <option>Grocery</option>
+        <option>Other</option>
+      </select>
+      <label class="field-label">Phone number</label>
+      <input class="field-input" name="phone" type="tel" required pattern="[0-9+ ()-]{8,18}" placeholder="Your contact number" />
+      <label class="field-label">Area / location</label>
+      <input class="field-input" name="location" required placeholder="Village or town" />
+      <label class="field-label">Short description</label>
+      <textarea class="field-input" name="description" rows="3" placeholder="Briefly describe the services you provide"></textarea>
       <button class="button-green full" type="submit">Submit listing <span>→</span></button>
     </form>
   </div>
+
+  <!-- CONTACT BLOOD DONOR MODAL -->
+  <div class="modal-backdrop" id="contactDonorModal">
+    <div class="modal nc-dark-modal">
+      <button type="button" class="modal-close" data-close="contactDonorModal" aria-label="Close contact dialog">×</button>
+      <div class="nc-modal-kicker">DONOR CONTACT</div>
+      <h2 id="contactDonorName">Donor Name</h2>
+      <div id="contactDonorBody"></div>
+    </div>
+  </div>
+
+  <!-- REPORT BLOOD DONOR MODAL -->
+  <div class="modal-backdrop" id="reportDonorModal">
+    <form class="modal nc-dark-modal" id="reportDonorForm">
+      <button type="button" class="modal-close" data-close="reportDonorModal" aria-label="Close report dialog">×</button>
+      <div class="nc-modal-kicker">COMMUNITY SAFETY</div>
+      <h2>Report Donor Profile</h2>
+      <p class="nc-modal-sub">Reporting <strong id="reportDonorTargetName">this profile</strong>. Repeated credible reports from independent users temporarily hide a profile pending review.</p>
+      <input type="hidden" id="reportDonorId" name="donorId" />
+
+      <div class="nc-radio-stack" role="radiogroup" aria-label="Report reason">
+        <label class="nc-radio-card">
+          <input type="radio" name="reason" value="incorrect_contact" required />
+          <span><strong>Incorrect contact information</strong><small>Number unreachable, wrong person, or disconnected</small></span>
+        </label>
+        <label class="nc-radio-card">
+          <input type="radio" name="reason" value="fake_profile" required />
+          <span><strong>Fake profile</strong><small>Suspicious, spam, or impersonation listing</small></span>
+        </label>
+        <label class="nc-radio-card">
+          <input type="radio" name="reason" value="incorrect_blood_group" required />
+          <span><strong>Incorrect blood group information</strong><small>Listed blood group does not match donor</small></span>
+        </label>
+        <label class="nc-radio-card">
+          <input type="radio" name="reason" value="other" required />
+          <span><strong>Other concerns</strong><small>Any other issue with this donor listing</small></span>
+        </label>
+      </div>
+
+      <label class="field-label" for="reportDonorDetails">Additional details (optional)</label>
+      <textarea class="field-input" id="reportDonorDetails" name="details" rows="3" maxlength="400" placeholder="Provide brief context to help keep the directory reliable…"></textarea>
+
+      <div class="bd-inline-alert hidden" id="reportDonorAlert" role="alert"></div>
+
+      <div class="nc-modal-actions">
+        <button type="button" class="btn-glass-outline" data-close="reportDonorModal">Cancel</button>
+        <button type="submit" class="btn-crimson-solid" id="reportDonorSubmit">Submit Report</button>
+      </div>
+    </form>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

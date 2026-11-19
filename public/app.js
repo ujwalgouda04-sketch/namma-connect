@@ -23,6 +23,44 @@ try {
 } catch (e) {}
 
 let activeAuthTab = "login";
+let currentHospitalSpecialty = "all";
+let currentPublicInfoTab = "facilities"; // "facilities" | "schemes" | "helplines" | "documents"
+let selectedHospital = null;
+let hospitalFinderMap = null;
+let hospitalDetailMap = null;
+let emergencyContacts = [];
+let activeQueueToken = null;
+
+function refreshIcons() {
+  if (window.lucide && typeof window.lucide.createIcons === "function") {
+    window.lucide.createIcons();
+  }
+}
+
+function getInitials(name) {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "NC";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getCategoryIcon(category) {
+  const c = String(category || "").toLowerCase();
+  if (c.includes("electric")) return "zap";
+  if (c.includes("plumb")) return "wrench";
+  if (c.includes("carpent")) return "hammer";
+  if (c.includes("mechan") || c.includes("auto")) return "car";
+  if (c.includes("ac") || c.includes("cool")) return "wind";
+  if (c.includes("paint")) return "paintbrush";
+  if (c.includes("clean")) return "sparkles";
+  if (c.includes("comput") || c.includes("laptop") || c.includes("tech")) return "laptop";
+  if (c.includes("medic") || c.includes("pharm")) return "pill";
+  if (c.includes("grocer") || c.includes("shop")) return "shopping-bag";
+  return "briefcase";
+}
 
 function updateAuthUI() {
   const labelEl = $("#authLabel");
@@ -33,24 +71,70 @@ function updateAuthUI() {
   if (currentUser) {
     const firstName = currentUser.name ? currentUser.name.split(" ")[0] : "Account";
     if (labelEl) labelEl.textContent = firstName;
-    if (avatarEl) avatarEl.textContent = currentUser.name ? currentUser.name[0].toUpperCase() : "👤";
+    if (avatarEl) avatarEl.textContent = getInitials(currentUser.name);
     if (topBtn) topBtn.title = `Signed in as ${currentUser.name}`;
-    if (navLink) navLink.textContent = `Profile (${firstName})`;
+    if (navLink) navLink.textContent = `Account (${firstName})`;
   } else {
-    if (labelEl) labelEl.textContent = "Sign in";
-    if (avatarEl) avatarEl.textContent = "👤";
+    if (labelEl) labelEl.textContent = "Sign In";
+    if (avatarEl) {
+      avatarEl.innerHTML = `<i data-lucide="key-round"></i>`;
+      refreshIcons();
+    }
     if (topBtn) topBtn.title = "Sign in or register";
-    if (navLink) navLink.textContent = "Sign in";
+    if (navLink) navLink.textContent = "Sign In / Account";
   }
 }
 
-const demoDonors = [
-  {name: "Ramesh Kumar", group: "O+", area: "Town centre", phone: "+91 98450 12345", available: "Available immediately"},
-  {name: "Ananya Hegde", group: "B+", area: "Market area", phone: "+91 98801 23456", available: "Available on call"},
-  {name: "Karthik Shetty", group: "A+", area: "Station road", phone: "+91 99012 34567", available: "Available immediately"},
-  {name: "Pooja Nayak", group: "AB+", area: "Hospital road", phone: "+91 94482 34568", available: "Available on call"},
-  {name: "Vikram Gowda", group: "O-", area: "Main road", phone: "+91 97413 45679", available: "Rare donor · Available"}
-];
+// Live Blood Donor Directory state (backed by MongoDB + OTP verification)
+const BLOOD_SAFETY_NOTICE =
+  "Donor information is self-reported. Phone verification does not confirm blood group or medical eligibility. All donations must be screened and approved by a licensed blood bank.";
+
+let donorDirectoryList = [];
+let myDonorProfiles = [];
+let activeDonorTab = "directory"; // "directory" | "register"
+let pendingDonorOtpState = null; // { donorId, maskedPhone, expiresAt, cooldownUntil, remainingResends, verificationMode }
+let donorOtpTimerInterval = null;
+let donorReportBound = false;
+
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function donorApiFetch(endpoint, options = {}) {
+  const isBackendHost = window.location.port === "5000";
+  const targets = isBackendHost
+    ? [endpoint, `http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`]
+    : [`http://localhost:5000${endpoint}`, `http://127.0.0.1:5000${endpoint}`, endpoint];
+
+  const userToken = localStorage.getItem("namma_token");
+  const donorToken = localStorage.getItem("namma_donor_token");
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...(userToken ? { Authorization: `Bearer ${userToken}` } : {}),
+    ...(donorToken ? { "X-Donor-Token": donorToken } : {}),
+    ...(options.headers || {})
+  };
+
+  for (const url of targets) {
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (res.status === 404 && url === endpoint && !isBackendHost) {
+        continue;
+      }
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    } catch (_) {
+      // try next target
+    }
+  }
+  throw new Error("Cannot connect to Namma Connect backend server (http://localhost:5000).");
+}
 
 // Local services: Salesman contact, Phone number, Direct Call and WhatsApp options
 const demoProviders = [
@@ -186,6 +270,7 @@ async function fetchLiveFacilities(lat, lng) {
   isFetchingFacilities = true;
   facilityFetchError = null;
   if ($("#facilityResults")) renderFacilities();
+  if ($("#hospitalResults")) renderHospitalFinder();
 
   try {
     let data = null;
@@ -227,6 +312,7 @@ async function fetchLiveFacilities(lat, lng) {
   } finally {
     isFetchingFacilities = false;
     if ($("#facilityResults")) renderFacilities();
+    if ($("#hospitalResults")) renderHospitalFinder();
     renderMapMarkers();
   }
 }
@@ -611,36 +697,53 @@ function updateMap(){
 }
 
 function showModule(page){
+  // Clean up any existing inline Leaflet maps before replacing DOM
+  if (hospitalFinderMap) {
+    try { hospitalFinderMap.remove(); } catch (_) {}
+    hospitalFinderMap = null;
+  }
+  if (hospitalDetailMap) {
+    try { hospitalDetailMap.remove(); } catch (_) {}
+    hospitalDetailMap = null;
+  }
+
   $("#moduleView").classList.remove("hidden");
   document.querySelector("main").classList.add("hidden");
   $(".footer").classList.add("hidden");
   window.scrollTo(0,0);
 
   const names={
-    public:"PUBLIC SERVICES",
-    blood:"BLOOD DONORS",
-    emergency:"EMERGENCY",
+    hospitals:"HOSPITAL FINDER",
+    "hospital-detail":"HOSPITAL DETAILS",
+    blood:"BLOOD DONOR DIRECTORY",
+    "blood-register":"BLOOD DONOR REGISTRATION",
+    emergency:"EMERGENCY ASSISTANCE",
     local:"LOCAL SERVICES",
     queue:"DIGITAL QUEUE",
-    auth:"ACCOUNT & LOGIN"
+    public:"PUBLIC INFORMATION",
+    auth:"ACCOUNT"
   };
 
   $("#moduleCrumb").textContent=names[page]||"EXPLORE";
 
   const views={
-    public:publicView,
+    hospitals:hospitalsView,
+    "hospital-detail":hospitalDetailView,
     blood:bloodView,
+    "blood-register":bloodRegisterView,
     emergency:emergencyView,
     local:localView,
     queue:queueView,
+    public:publicView,
     auth:authView
   };
 
   $("#moduleContent").innerHTML=(views[page]||publicView)();
   bindModule(page);
+  refreshIcons();
 
-  // If opening public view, ensure facilities are fetched
-  if (page === "public") {
+  // If opening hospitals or public view, ensure live OSM facilities are fetched
+  if (page === "hospitals" || page === "public") {
     if (currentLocation) {
       if ((liveHospitals.length === 0 || liveFire.length === 0 || liveGovernment.length === 0) && !isFetchingFacilities) {
         fetchLiveFacilities(currentLocation.lat, currentLocation.lng);
@@ -652,150 +755,713 @@ function showModule(page){
 }
 
 function goHome(){
+  if (hospitalFinderMap) {
+    try { hospitalFinderMap.remove(); } catch (_) {}
+    hospitalFinderMap = null;
+  }
+  if (hospitalDetailMap) {
+    try { hospitalDetailMap.remove(); } catch (_) {}
+    hospitalDetailMap = null;
+  }
   $("#moduleView").classList.add("hidden");
   document.querySelector("main").classList.remove("hidden");
   $(".footer").classList.remove("hidden");
   window.scrollTo(0,0);
+  refreshIcons();
 }
 
 $("#backHome").addEventListener("click",goHome);
 
+function closeMobileDrawer() {
+  const drawer = $("#mobileNavDrawer");
+  const toggle = $("#menuToggle");
+  if (drawer) drawer.classList.add("hidden");
+  if (toggle) toggle.setAttribute("aria-expanded", "false");
+}
+
+function setActiveNavLink(page) {
+  $$(".desktop-nav .nav-link").forEach((link) => {
+    link.classList.toggle("active", link.dataset.page === page);
+  });
+}
+
 $$("[data-page]").forEach(el=>el.addEventListener("click",e=>{
   e.preventDefault();
-  const p=el.dataset.page;
+  closeMobileDrawer();
+  const p = el.dataset.page;
 
-  if(["public","blood","emergency","local","queue","auth"].includes(p))
+  if (el.dataset.tab) {
+    currentFacilityTab = el.dataset.tab;
+    currentHospitalSpecialty = "all";
+  }
+
+  if(["hospitals","hospital-detail","public","blood","blood-register","emergency","local","queue","auth"].includes(p)) {
+    setActiveNavLink("services");
     showModule(p);
-  else if(p==="explore")
-    document.querySelector("#services").scrollIntoView({behavior:"smooth"});
-  else
+  } else if(p === "services" || p === "explore") {
     goHome();
+    setActiveNavLink("services");
+    setTimeout(() => document.querySelector("#services")?.scrollIntoView({behavior:"smooth"}), 40);
+  } else if(p === "map") {
+    goHome();
+    setActiveNavLink("map");
+    setTimeout(() => {
+      document.querySelector("#mapSection")?.scrollIntoView({behavior:"smooth"});
+      if (map) map.invalidateSize();
+    }, 60);
+  } else if(p === "about") {
+    goHome();
+    setActiveNavLink("about");
+    setTimeout(() => document.querySelector("#about")?.scrollIntoView({behavior:"smooth"}), 40);
+  } else {
+    goHome();
+    setActiveNavLink("home");
+  }
 }));
 
-// Public Services View: includes separate sections and tabs for Hospitals, Police, Fire, and Government Offices
-function publicView(){
-  return `<div class="eyebrow"><span class="eyebrow-line"></span> LIVE NEARBY DISCOVERY</div>
-  <h1>Essential services,<br><em>around your location.</em></h1>
-  <p class="intro">Live hospital, police station, fire station, and government office directory fetched directly from OpenStreetMap based on your current location only.</p>
-  
-  <div class="module-toolbar">
-    <input id="facilitySearch" placeholder="Filter hospitals, police, fire, or government offices…">
-    <select id="facilityType">
-      <option value="">All public facilities</option>
-      <option value="Hospital">Hospitals only</option>
-      <option value="Police">Police stations only</option>
-      <option value="Fire station">Fire stations only</option>
-      <option value="Government Office">Government offices only</option>
-    </select>
-    <button class="button-dark" id="facilityGps">⌖ Use GPS</button>
-  </div>
+// PAGE 2: HOSPITAL FINDER — Search, specialty filters, embedded map, hospital listings, directions & View Details
+function hospitalsView() {
+  const specialties = [
+    { id: "all", label: "All Specialties" },
+    { id: "general", label: "General & Multi-Specialty" },
+    { id: "clinic", label: "Clinic & Primary Care" },
+    { id: "dental_eye", label: "Eye / Dental / ENT" },
+    { id: "maternity", label: "Maternity & Child" }
+  ];
 
-  <div class="facility-tabs" id="facilityTabs">
-    <button class="facility-tab active" data-tab="all">All Services</button>
-    <button class="facility-tab" data-tab="Hospital">🏥 Nearby Hospitals</button>
-    <button class="facility-tab" data-tab="Police">🚓 Nearby Police Stations</button>
-    <button class="facility-tab" data-tab="Fire station">🚒 Fire Stations</button>
-    <button class="facility-tab" data-tab="Government Office">🏛️ Government Offices</button>
-  </div>
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> LIVE HEALTHCARE DIRECTORY</div>
+        <h1>Hospital <em>Finder</em></h1>
+        <p>Nearby hospitals and clinics fetched live from OpenStreetMap around your current location. Select any hospital to inspect departments, contact lines, and map directions.</p>
+      </div>
+      <button type="button" class="btn-neon-primary" id="hospitalGpsBtn">
+        <i data-lucide="locate-fixed"></i> Refresh GPS
+      </button>
+    </div>
 
-  <div id="facilityResults"></div>`;
+    <div class="nc-toolbar">
+      <input class="nc-input" id="hospitalSearchInput" type="search" placeholder="Search hospital or clinic name, street, or area…" />
+      <a href="tel:108" class="btn-crimson-solid"><i data-lucide="ambulance"></i> Ambulance 108</a>
+    </div>
+
+    <div class="nc-pills-row" role="group" aria-label="Hospital specialty filters">
+      ${specialties
+        .map(
+          (s) =>
+            `<button type="button" class="nc-pill-btn ${currentHospitalSpecialty === s.id ? "active" : ""}" data-hspec="${s.id}">${s.label}</button>`
+        )
+        .join("")}
+    </div>
+
+    <div class="nc-inline-map-wrap">
+      <div class="map-panel-head">
+        <div class="map-head-title"><span class="live-indicator"></span> HOSPITALS NEAR ${escapeHtml((currentLocationName || "YOUR LOCATION").toUpperCase())}</div>
+        <span class="map-status-badge" id="hospitalCountBadge">Loading…</span>
+      </div>
+      <div id="hospitalFinderMap" class="nc-inline-map"></div>
+    </div>
+
+    <div id="hospitalResults"></div>
+  `;
 }
 
-function bloodView(){
-  return `<div class="eyebrow"><span class="eyebrow-line"></span> COMMUNITY SUPPORT</div>
-  <h1>A small act can<br><em>save a life.</em></h1>
-  <p class="intro">Search the community donor directory by blood group and area. Contact donors directly via phone call or WhatsApp in case of emergency.</p>
-  <div class="module-toolbar">
-  <select id="bloodGroup">
-  <option value="">All blood groups</option>
-  ${["A+","A-","B+","B-","AB+","AB-","O+","O-"].map(x=>`<option>${x}</option>`).join("")}
-  </select>
-  <input id="donorArea" placeholder="Enter area or village">
-  <button class="button-dark" id="donorSearch">Find donors ↗</button>
-  </div>
-  <div class="modern-cards-grid" id="donorResults"></div>
-  <form class="inline-form" id="donorForm">
-  <h3>Register as a donor</h3>
-  <label class="field-label">Name</label>
-  <input class="field-input" name="name" required>
-  <label class="field-label">Blood group</label>
-  <select class="field-input" name="group" required>
-  <option value="">Choose blood group</option>
-  ${["A+","A-","B+","B-","AB+","AB-","O+","O-"].map(x=>`<option>${x}</option>`).join("")}
-  </select>
-  <label class="field-label">Area</label>
-  <input class="field-input" name="area" required>
-  <label class="field-label">Contact phone number (for direct calling)</label>
-  <input class="field-input" name="phone" type="tel" required>
-  <button class="button-green" type="submit">Register donor →</button>
-  </form>`;
+// PAGE 8: HOSPITAL DETAILS — Departments, facilities, contact, embedded map & directions
+function hospitalDetailView() {
+  const h = selectedHospital || liveHospitals[0];
+  if (!h) {
+    return `
+      <div class="nc-empty-box">
+        <i data-lucide="hospital" style="width:32px;height:32px;color:#4ade80;"></i>
+        <h3>No hospital selected</h3>
+        <p>Choose a hospital from the Hospital Finder directory to view its complete details.</p>
+        <button type="button" class="btn-neon-primary" id="backToHospitalsEmpty">Open Hospital Finder</button>
+      </div>
+    `;
+  }
+
+  const cleanPhone = (h.phone || "").replace(/[^0-9+]/g, "");
+  const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`;
+  const lower = `${h.name || ""} ${h.area || ""}`.toLowerCase();
+
+  // Honest facility & department tags derived from OpenStreetMap category/name
+  const departments = ["General Outpatient (OPD)", "Emergency / First Aid"];
+  if (/eye|netra|ophthalm|vision/.test(lower)) departments.push("Ophthalmology / Eye Care");
+  if (/dental|tooth/.test(lower)) departments.push("Dental Care");
+  if (/maternity|women|child|pediatric|mother/.test(lower)) departments.push("Maternity & Pediatrics");
+  if (/ortho/.test(lower)) departments.push("Orthopedics");
+  if (/clinic|phc|primary/.test(lower)) departments.push("Primary Health Care");
+  else departments.push("Inpatient & Diagnostic Services");
+
+  const facilities = [
+    { icon: "ambulance", label: "Ambulance Access (108)" },
+    { icon: "phone-call", label: cleanPhone ? `Direct Line: ${h.phone}` : "Call 108 / 112 for Dispatch" },
+    { icon: "navigation", label: h.distanceText ? `Distance: ${h.distanceText}` : "GPS Location Mapped" },
+    { icon: "database", label: "Source: OpenStreetMap Live" }
+  ];
+
+  return `
+    <div style="margin-bottom:18px;">
+      <button type="button" class="nc-btn-secondary" id="backToHospitalsBtn">
+        <i data-lucide="arrow-left"></i> Back to Hospital Finder
+      </button>
+    </div>
+
+    <div class="nc-detail-grid">
+      <div class="nc-surface-card">
+        <div class="nc-card-head" style="margin-bottom:18px;">
+          <div class="nc-cat-icon-box"><i data-lucide="hospital"></i></div>
+          <div>
+            <div class="nc-eyebrow" style="margin-bottom:4px;"><span class="eyebrow-bar"></span> HEALTHCARE FACILITY</div>
+            <h1 style="margin:0; font-size:26px; color:#fff;">${escapeHtml(h.name)}</h1>
+            <p class="nc-card-sub" style="margin-top:6px;"><i data-lucide="map-pin"></i> ${escapeHtml(h.area || "Local Area")}</p>
+          </div>
+        </div>
+
+        <div class="nc-badges-row" style="margin-bottom:20px;">
+          <span class="nc-badge green"><i data-lucide="navigation"></i> ${escapeHtml(h.distanceText || "Nearby")}</span>
+          <span class="nc-badge"><i data-lucide="globe"></i> OpenStreetMap Directory</span>
+        </div>
+
+        <h3 style="margin:0 0 6px; font-size:15px; color:#fff;">Likely Departments &amp; Services</h3>
+        <p style="margin:0 0 10px; font-size:12.5px; color:#8ea598;">Listed based on facility category. Call ahead to confirm specialist availability.</p>
+        <div class="nc-detail-list" style="margin-bottom:22px;">
+          ${departments
+            .map((d) => `<div class="nc-detail-chip"><i data-lucide="stethoscope"></i><span>${escapeHtml(d)}</span></div>`)
+            .join("")}
+        </div>
+
+        <h3 style="margin:0 0 8px; font-size:15px; color:#fff;">Facility Information</h3>
+        <div class="nc-detail-list" style="margin-bottom:22px;">
+          ${facilities
+            .map((f) => `<div class="nc-detail-chip"><i data-lucide="${f.icon}"></i><span>${escapeHtml(f.label)}</span></div>`)
+            .join("")}
+        </div>
+
+        <div class="nc-card-actions" style="border-top-color:rgba(255,255,255,0.08);">
+          <a href="tel:108" class="btn-crimson-solid"><i data-lucide="ambulance"></i> Call 108</a>
+          ${cleanPhone ? `<a href="tel:${escapeHtml(cleanPhone)}" class="nc-btn-primary"><i data-lucide="phone"></i> Call Hospital</a>` : ""}
+          <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary"><i data-lucide="navigation"></i> Directions</a>
+          <button type="button" class="nc-btn-secondary" id="detailBookQueueBtn"><i data-lucide="clock"></i> Demo Queue</button>
+        </div>
+      </div>
+
+      <div class="nc-inline-map-wrap" style="margin-bottom:0;">
+        <div class="map-panel-head">
+          <div class="map-head-title"><span class="live-indicator"></span> HOSPITAL LOCATION</div>
+          <span class="map-status-badge">${escapeHtml(h.distanceText || "Mapped")}</span>
+        </div>
+        <div id="hospitalDetailMap" class="nc-inline-map" style="height:360px;"></div>
+        <div style="padding:14px 16px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span style="font-size:12.5px; color:#95aba0;">Coordinates: ${Number(h.lat).toFixed(4)}, ${Number(h.lng).toFixed(4)}</span>
+          <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary" style="padding:7px 12px; font-size:12.5px;">Open in Google Maps ↗</a>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
-function emergencyView(){
-  return `<div class="eyebrow"><span class="eyebrow-line"></span> HELP WHEN IT MATTERS</div>
-  <h1>Help should never<br><em>feel far away.</em></h1>
-  <p class="intro">Access emergency numbers and share your current location with someone you trust. This prototype provides direct calling and location sharing.</p>
-  <div class="emergency-box">
-  <div class="eyebrow" style="justify-content:center">QUICK EMERGENCY ACCESS</div>
-  <button class="sos-button" id="sosButton">SOS</button>
-  <p>Use the button to prepare a location-sharing message. For immediate danger, call the appropriate emergency number directly.</p>
-  <div class="emergency-numbers">
-  <a href="tel:112"><b>112</b><br>Emergency</a>
-  <a href="tel:108"><b>108</b><br>Ambulance</a>
-  <a href="tel:101"><b>101</b><br>Fire</a>
-  <a href="tel:100"><b>100</b><br>Police</a>
-  </div>
-  <button class="button-dark" id="shareLocation">Share my location ↗</button>
-  </div>
-  <form class="inline-form" id="contactForm">
-  <h3>Emergency contact (saved in this browser session)</h3>
-  <label class="field-label">Contact name</label>
-  <input class="field-input" name="name" required>
-  <label class="field-label">Phone number</label>
-  <input class="field-input" name="phone" type="tel" required>
-  <button class="button-green" type="submit">Add contact →</button>
-  <div id="contactList"></div>
-  </form>`;
+// PAGE 7: PUBLIC INFORMATION — Civic facilities, Government schemes, Helplines, Documents & Notices
+function publicView() {
+  const tabs = [
+    { id: "facilities", icon: "landmark", label: "Nearby Civic Offices" },
+    { id: "schemes", icon: "file-check-2", label: "Government Schemes" },
+    { id: "helplines", icon: "phone-call", label: "Official Helplines" },
+    { id: "documents", icon: "clipboard-list", label: "Documents & Notices" }
+  ];
+
+  const activeTab = currentFacilityTab || "all";
+
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> CIVIC &amp; PUBLIC RESOURCES</div>
+        <h1>Public <em>Information</em></h1>
+        <p>Find nearby police stations, fire stations, and government offices alongside official citizen schemes, emergency helplines, and document checklists.</p>
+      </div>
+    </div>
+
+    <div class="nc-pills-row" role="tablist" aria-label="Public information sections">
+      ${tabs
+        .map(
+          (t) =>
+            `<button type="button" class="nc-pill-btn ${currentPublicInfoTab === t.id ? "active" : ""}" data-pub-tab="${t.id}" role="tab">
+              <i data-lucide="${t.icon}"></i> ${t.label}
+            </button>`
+        )
+        .join("")}
+    </div>
+
+    <!-- TAB 1: NEARBY CIVIC OFFICES (Live OSM) -->
+    <section id="pubTabFacilities" class="${currentPublicInfoTab === "facilities" ? "" : "hidden"}">
+      <div class="nc-toolbar">
+        <input class="nc-input" id="facilitySearch" placeholder="Filter police stations, fire stations, government offices, or hospitals…" />
+        <select class="nc-select" id="facilityType">
+          <option value="" ${activeTab === "all" ? "selected" : ""}>All public facilities</option>
+          <option value="Police" ${activeTab === "Police" ? "selected" : ""}>Police stations</option>
+          <option value="Fire station" ${activeTab === "Fire station" ? "selected" : ""}>Fire stations</option>
+          <option value="Government Office" ${activeTab === "Government Office" ? "selected" : ""}>Government offices</option>
+          <option value="Hospital" ${activeTab === "Hospital" ? "selected" : ""}>Hospitals</option>
+        </select>
+        <button type="button" class="nc-btn-secondary" id="facilityGps"><i data-lucide="locate-fixed"></i> Use GPS</button>
+      </div>
+
+      <div class="nc-pills-row" id="facilityTabs">
+        <button type="button" class="nc-pill-btn facility-tab ${activeTab === "all" ? "active" : ""}" data-tab="all">All</button>
+        <button type="button" class="nc-pill-btn facility-tab ${activeTab === "Police" ? "active" : ""}" data-tab="Police"><i data-lucide="shield"></i> Police</button>
+        <button type="button" class="nc-pill-btn facility-tab ${activeTab === "Fire station" ? "active" : ""}" data-tab="Fire station"><i data-lucide="flame"></i> Fire Stations</button>
+        <button type="button" class="nc-pill-btn facility-tab ${activeTab === "Government Office" ? "active" : ""}" data-tab="Government Office"><i data-lucide="landmark"></i> Government Offices</button>
+        <button type="button" class="nc-pill-btn facility-tab ${activeTab === "Hospital" ? "active" : ""}" data-tab="Hospital"><i data-lucide="hospital"></i> Hospitals</button>
+      </div>
+
+      <div id="facilityResults"></div>
+    </section>
+
+    <!-- TAB 2: GOVERNMENT SCHEMES -->
+    <section id="pubTabSchemes" class="${currentPublicInfoTab === "schemes" ? "" : "hidden"}">
+      <div class="nc-cards-grid">
+        ${[
+          { name: "Seva Sindhu Karnataka", dept: "Government of Karnataka", desc: "Single citizen portal for state certificates, welfare guarantees, and municipal online services.", url: "https://sevasindhu.karnataka.gov.in" },
+          { name: "Ayushman Bharat — Arogya Karnataka", dept: "Health & Family Welfare", desc: "Public health assurance scheme providing cashless treatment coverage at empanelled hospitals.", url: "https://arogya.karnataka.gov.in" },
+          { name: "Sakala Citizen Services", dept: "Public Service Guarantee", desc: "Track time-bound delivery of revenue, municipal, transport, and panchayat applications.", url: "https://sakala.kar.nic.in" },
+          { name: "DigiLocker", dept: "Ministry of Electronics & IT", desc: "Access official digital copies of Aadhaar, Driving License, PAN, and educational records.", url: "https://www.digilocker.gov.in" },
+          { name: "PM-KISAN Samman Nidhi", dept: "Agriculture & Farmers Welfare", desc: "Direct income support portal, beneficiary status check, and e-KYC services for eligible farmers.", url: "https://pmkisan.gov.in" },
+          { name: "National Voters' Service Portal", dept: "Election Commission of India", desc: "Verify electoral roll entry, apply for voter ID corrections, or download e-EPIC.", url: "https://voters.eci.gov.in" }
+        ]
+          .map(
+            (s) => `
+          <article class="nc-item-card">
+            <div class="nc-card-head">
+              <div class="nc-cat-icon-box violet"><i data-lucide="file-check-2"></i></div>
+              <div>
+                <h3 class="nc-card-title">${s.name}</h3>
+                <p class="nc-card-sub">${s.dept}</p>
+              </div>
+            </div>
+            <p style="margin:0; font-size:13.5px; line-height:1.55; color:#9cb2a6;">${s.desc}</p>
+            <div class="nc-card-actions">
+              <a href="${s.url}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary" style="flex:1;">
+                <i data-lucide="external-link"></i> Official Portal
+              </a>
+            </div>
+          </article>
+        `
+          )
+          .join("")}
+      </div>
+    </section>
+
+    <!-- TAB 3: OFFICIAL HELPLINES -->
+    <section id="pubTabHelplines" class="${currentPublicInfoTab === "helplines" ? "" : "hidden"}">
+      <div class="nc-cards-grid">
+        ${[
+          { num: "112", title: "National Emergency", desc: "Unified police, fire, and medical emergency response across India.", tone: "crimson" },
+          { num: "108", title: "Ambulance Service", desc: "24/7 free emergency medical transport and trauma support.", tone: "crimson" },
+          { num: "100", title: "Police Control Room", desc: "Immediate law enforcement and neighbourhood safety response.", tone: "blue" },
+          { num: "101", title: "Fire & Rescue", desc: "Emergency fire brigade and disaster rescue dispatch.", tone: "orange" },
+          { num: "104", title: "Health Information Helpline", desc: "Medical guidance, government health scheme info, and grievance desk.", tone: "" },
+          { num: "1091", title: "Women Helpline", desc: "Dedicated emergency assistance and safety support for women.", tone: "violet" },
+          { num: "1098", title: "Childline India", desc: "24-hour emergency outreach service for children in need of care.", tone: "blue" },
+          { num: "1930", title: "Cyber Crime Helpline", desc: "Report online financial fraud immediately to freeze unauthorized transfers.", tone: "orange" }
+        ]
+          .map(
+            (h) => `
+          <article class="nc-item-card">
+            <div class="nc-card-head">
+              <div class="nc-cat-icon-box ${h.tone}"><i data-lucide="phone-call"></i></div>
+              <div>
+                <h3 class="nc-card-title">${h.title}</h3>
+                <p class="nc-card-sub" style="color:#4ade80; font-weight:700;">Helpline: ${h.num}</p>
+              </div>
+            </div>
+            <p style="margin:0; font-size:13.5px; line-height:1.55; color:#9cb2a6;">${h.desc}</p>
+            <div class="nc-card-actions">
+              <a href="tel:${h.num}" class="nc-btn-primary"><i data-lucide="phone"></i> Call ${h.num}</a>
+            </div>
+          </article>
+        `
+          )
+          .join("")}
+      </div>
+    </section>
+
+    <!-- TAB 4: DOCUMENTS & NOTICES -->
+    <section id="pubTabDocuments" class="${currentPublicInfoTab === "documents" ? "" : "hidden"}">
+      <div class="nc-cards-grid">
+        ${[
+          { title: "Income & Caste Certificate", items: ["Aadhaar Card / Photo ID", "Ration Card or Address Proof", "Self-Declaration Affidavit", "Passport-size photographs (at Nada Kacheri / Seva Sindhu)"] },
+          { title: "Ration Card Application / Update", items: ["Aadhaar of all family members", "Recent electricity or utility bill", "Income certificate (for BPL / Antyodaya)", "Active mobile number linked to Aadhaar"] },
+          { title: "Voter ID (New / Address Change)", items: ["Age proof (Birth / SSLC marks card)", "Current residence proof", "Aadhaar number (optional)", "Submit online via voters.eci.gov.in"] },
+          { title: "Aadhaar Address Update", items: ["Valid Proof of Address (Passport, Bank passbook, Utility bill)", "Registered mobile number for OTP", "Update via myAadhaar portal or nearby Aadhaar Seva Kendra"] }
+        ]
+          .map(
+            (doc) => `
+          <article class="nc-item-card">
+            <div class="nc-card-head">
+              <div class="nc-cat-icon-box"><i data-lucide="clipboard-list"></i></div>
+              <div>
+                <h3 class="nc-card-title">${doc.title}</h3>
+                <p class="nc-card-sub">General Document Checklist</p>
+              </div>
+            </div>
+            <ul style="margin:0; padding-left:18px; color:#b2c5ba; font-size:13.5px; line-height:1.7;">
+              ${doc.items.map((it) => `<li>${it}</li>`).join("")}
+            </ul>
+          </article>
+        `
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
 }
 
-// Local Services View: includes Salesman contact, Direct Call and WhatsApp options
-function localView(){
-  return `<div class="eyebrow"><span class="eyebrow-line"></span> PEOPLE WHO CAN HELP</div>
-  <h1>Local skills.<br><em>Real connections.</em></h1>
-  <p class="intro">Discover neighbourhood service providers. Contact salesmen and technicians directly via phone call or WhatsApp message.</p>
-  <div class="module-toolbar">
-  <input id="providerSearch" placeholder="Search plumber, electrician, salesman, service…">
-  <select id="providerCategory">
-  <option value="">All categories</option>
-  ${["Plumber","Electrician","Carpenter","Mechanic","AC repair","Painter","Home cleaning","Computer repair","Medical store","Grocery"].map(x=>`<option>${x}</option>`).join("")}
-  </select>
-  </div>
-  <div class="modern-cards-grid" id="providerResults"></div>
-  <button class="button-green" id="openProviderInline">Register your service ↗</button>`;
+// PAGE 3: BLOOD DONOR DIRECTORY — Dark-green theme, circular initials badges (NO human photos/avatars)
+function bloodView() {
+  const groups = ["A+","A-","B+","B-","AB+","AB-","O+","O-"];
+
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> VOLUNTARY COMMUNITY DIRECTORY</div>
+        <h1>Blood Donor <em>Directory</em></h1>
+        <p>Filter registered blood donors by blood group and city. Contact details are displayed only for donors who explicitly consented to sharing them.</p>
+      </div>
+      <button type="button" class="btn-crimson-solid" id="openDonorRegPageBtn" style="padding:12px 20px;">
+        <i data-lucide="plus"></i> Register as Donor
+      </button>
+    </div>
+
+    <div class="nc-safety-banner" role="note" aria-label="Medical safety disclaimer">
+      <i data-lucide="shield-alert" style="color:#f87171; margin-top:2px;"></i>
+      <div><strong>Medical Safety Notice:</strong> ${BLOOD_SAFETY_NOTICE}</div>
+    </div>
+
+    <!-- Owner availability bar (authenticated owners only) -->
+    <div id="myDonorPanel" class="nc-owner-bar hidden"></div>
+
+    <!-- Blood Group Filter Chips -->
+    <div class="nc-pills-row" role="group" aria-label="Filter by blood group">
+      <button type="button" class="nc-pill-btn crimson-active" data-bg-chip="">All Groups</button>
+      ${groups.map((x) => `<button type="button" class="nc-pill-btn" data-bg-chip="${x}">${x}</button>`).join("")}
+      <input type="hidden" id="bloodGroup" value="" />
+    </div>
+
+    <!-- City Search & Availability Filter -->
+    <div class="nc-toolbar">
+      <input class="nc-input" id="donorArea" type="search" placeholder="Search by city or location (e.g. Honnavar, Mangaluru, Bengaluru)…" aria-label="Filter by city or location" />
+      <label class="nc-pill-btn" style="cursor:pointer;">
+        <input type="checkbox" id="donorAvailableOnly" style="accent-color:#22c55e;" />
+        <span>Available only</span>
+      </label>
+      <button type="button" class="nc-btn-primary" id="donorSearch" style="flex:0 0 auto;"><i data-lucide="search"></i> Search</button>
+      <button type="button" class="nc-btn-secondary" id="donorReset">Reset</button>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; font-size:13px; color:#8ea598;">
+      <span id="donorCountLabel">Loading blood donors…</span>
+      <span>Initials badges protect donor privacy; no profile photos are stored.</span>
+    </div>
+
+    <div id="donorResults"></div>
+  `;
 }
 
-function queueView(){
-  return `<div class="eyebrow"><span class="eyebrow-line"></span> LESS WAITING, MORE LIVING</div>
-  <h1>Your time<br><em>matters.</em></h1>
-  <p class="intro">Generate a demo token for a participating service centre. This is a front-end simulation, not a live hospital queue.</p>
-  <form class="inline-form" id="queueForm">
-  <h3>Get a queue token</h3>
-  <label class="field-label">Choose a participating centre</label>
-  <select class="field-input" name="centre" required>
-  <option value="">Select centre</option>
-  <option>Community Health Centre (Demo)</option>
-  <option>Primary Health Unit (Demo)</option>
-  </select>
-  <label class="field-label">Department</label>
-  <select class="field-input" name="department" required>
-  <option value="">Select department</option>
-  ${["General Medicine","Cardiology","Orthopedics","Dermatology","Ophthalmology","Neurology","ENT","Dentistry","Pediatrics","Gynecology"].map(x=>`<option>${x}</option>`).join("")}
-  </select>
-  <label class="field-label">Your name</label>
-  <input class="field-input" name="name" required>
-  <button class="button-green" type="submit">Generate demo token →</button>
-  <div id="ticketResult"></div>
-  </form>`;
+// PAGE 9: BLOOD DONOR REGISTRATION — Clean dark-green form, availability & honest OTP verification
+function bloodRegisterView() {
+  const defaultCity = escapeHtml(currentLocationName || "");
+  const defaultName = escapeHtml(currentUser?.name || "");
+  const defaultPhone = escapeHtml(currentUser?.phone || "");
+  const groups = ["A+","A-","B+","B-","AB+","AB-","O+","O-"];
+
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> VOLUNTARY DONOR ONBOARDING</div>
+        <h1>Blood Donor <em>Registration</em></h1>
+        <p>Register your blood group, location, and availability. Mobile OTP verification is required before your listing becomes active in the directory.</p>
+      </div>
+      <button type="button" class="nc-btn-secondary" id="backToDonorDirBtn">
+        <i data-lucide="arrow-left"></i> Back to Donor Directory
+      </button>
+    </div>
+
+    <div class="nc-safety-banner" role="note">
+      <i data-lucide="shield-alert" style="color:#f87171; margin-top:2px;"></i>
+      <div><strong>Medical Safety Notice:</strong> ${BLOOD_SAFETY_NOTICE}</div>
+    </div>
+
+    <div class="nc-form-card">
+      <div class="nc-pills-row" style="margin-bottom:22px;">
+        <span class="nc-pill-btn ${pendingDonorOtpState ? "" : "active"}" id="bdStep1Chip">1. Donor Details</span>
+        <span class="nc-pill-btn ${pendingDonorOtpState ? "active" : ""}" id="bdStep2Chip">2. Mobile OTP Verification</span>
+      </div>
+
+      <!-- Step 1: Donor Registration Form -->
+      <form id="donorForm" class="${pendingDonorOtpState ? "hidden" : ""}" novalidate>
+        <div class="nc-form-grid-2">
+          <div class="nc-field">
+            <label for="bdFullName">Full Name *</label>
+            <input class="nc-input" id="bdFullName" name="fullName" type="text" required minlength="2" maxlength="100" value="${defaultName}" placeholder="e.g. Rajesh Nayak" />
+          </div>
+          <div class="nc-field">
+            <label for="bdCity">City / Location *</label>
+            <input class="nc-input" id="bdCity" name="city" type="text" required minlength="2" maxlength="100" value="${defaultCity}" placeholder="e.g. Honnavar, Mangaluru" />
+          </div>
+        </div>
+
+        <div class="nc-field">
+          <label>Blood Group *</label>
+          <div class="nc-blood-tiles" role="radiogroup" aria-label="Choose blood group">
+            ${groups
+              .map(
+                (x) => `
+              <label class="nc-blood-tile">
+                <input type="radio" name="bloodGroup" value="${x}" required />
+                <span>${x}</span>
+              </label>
+            `
+              )
+              .join("")}
+          </div>
+        </div>
+
+        <div class="nc-field">
+          <label for="bdPhone">Mobile Number *</label>
+          <input class="nc-input" id="bdPhone" name="phone" type="tel" required value="${defaultPhone}" placeholder="10-digit mobile number (e.g. 9876543210)" />
+        </div>
+
+        <div class="nc-field">
+          <label>Available to Donate *</label>
+          <div class="nc-radio-row" role="radiogroup" aria-label="Available to donate">
+            <label class="nc-radio-opt">
+              <input type="radio" name="availableToDonate" value="true" checked />
+              <span>Yes — Available</span>
+            </label>
+            <label class="nc-radio-opt">
+              <input type="radio" name="availableToDonate" value="false" />
+              <span>No — Not Available</span>
+            </label>
+          </div>
+        </div>
+
+        <label class="nc-consent-check">
+          <input type="checkbox" id="bdConsent" name="consentToShareContact" />
+          <span>
+            <strong>Consent to display my mobile number</strong> — I explicitly consent to showing my contact number in the Blood Donor Directory so people in need can reach me.
+            <small>If unchecked, your phone number remains strictly private and hidden.</small>
+          </span>
+        </label>
+
+        <div class="bd-inline-alert hidden" id="bdRegAlert" role="alert"></div>
+
+        <button class="nc-btn-primary" type="submit" id="bdRegSubmitBtn" style="width:100%; padding:13px;">
+          Send 6-Digit Verification OTP
+          <i data-lucide="arrow-right"></i>
+        </button>
+      </form>
+
+      <!-- Step 2: 6-Box OTP Verification Form -->
+      <form id="donorOtpForm" class="bd-otp-box ${pendingDonorOtpState ? "" : "hidden"}" novalidate>
+        <div id="bdOtpModeBanner" class="nc-demo-banner"></div>
+        <h3 style="margin:0 0 6px; font-size:20px; color:#ffffff;">Verify Mobile Number</h3>
+        <p style="margin:0; font-size:13.5px; color:#9cb2a6;">
+          Enter the 6-digit OTP for <strong id="bdOtpMaskedPhone" style="color:#ffffff;"></strong>
+        </p>
+
+        <div class="bd-otp-boxes" id="bdOtpBoxes" role="group" aria-label="6-digit OTP">
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" autocomplete="one-time-code" aria-label="OTP digit 1" />
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" aria-label="OTP digit 2" />
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" aria-label="OTP digit 3" />
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" aria-label="OTP digit 4" />
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" aria-label="OTP digit 5" />
+          <input class="bd-otp-digit" type="text" inputmode="numeric" maxlength="1" aria-label="OTP digit 6" />
+        </div>
+
+        <div class="bd-otp-meta" style="color:#95aba0;">
+          <span id="bdOtpExpiryText">OTP expires in 05:00</span>
+          <span>·</span>
+          <span id="bdOtpResendLeft"></span>
+        </div>
+
+        <div class="bd-inline-alert hidden" id="bdOtpAlert" role="alert"></div>
+
+        <div class="bd-otp-actions">
+          <button type="submit" class="nc-btn-primary" id="bdVerifyOtpBtn" style="flex:0 0 auto; padding:11px 20px;">Verify &amp; Activate Profile</button>
+          <button type="button" class="nc-btn-secondary" id="bdResendOtpBtn">Resend OTP</button>
+          <button type="button" class="nc-btn-secondary" id="bdBackToRegBtn">Edit Details</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+// PAGE 4: EMERGENCY ASSISTANCE — SOS, Ambulance, Police, Fire, GPS Location Sharing & Contacts
+function emergencyView() {
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> RAPID RESPONSE</div>
+        <h1>Emergency <em>Assistance</em></h1>
+        <p>Direct click-to-call national emergency helplines, instant GPS location sharing, and personal emergency contacts.</p>
+      </div>
+    </div>
+
+    <div class="nc-two-col">
+      <div class="nc-sos-panel">
+        <span class="emg-live-pill"><span class="emg-pulse-dot"></span> IMMEDIATE ASSISTANCE</span>
+        <button type="button" class="nc-sos-trigger" id="sosButton" aria-label="Share SOS GPS location">SOS</button>
+        <p style="font-size:13.5px; color:#d4b0b4; max-width:380px; margin:0 auto 16px; line-height:1.55;">
+          Tap SOS to prepare a Google Maps GPS location message to share with family or responders. For immediate danger, call directly below.
+        </p>
+
+        <div class="nc-helpline-grid">
+          <a href="tel:108" class="nc-helpline-tile">
+            <span><i data-lucide="ambulance" style="vertical-align:middle; margin-right:6px; color:#f87171;"></i> Ambulance</span>
+            <strong>108</strong>
+          </a>
+          <a href="tel:100" class="nc-helpline-tile">
+            <span><i data-lucide="shield" style="vertical-align:middle; margin-right:6px; color:#f87171;"></i> Police</span>
+            <strong>100</strong>
+          </a>
+          <a href="tel:101" class="nc-helpline-tile">
+            <span><i data-lucide="flame" style="vertical-align:middle; margin-right:6px; color:#f87171;"></i> Fire</span>
+            <strong>101</strong>
+          </a>
+          <a href="tel:112" class="nc-helpline-tile">
+            <span><i data-lucide="phone-call" style="vertical-align:middle; margin-right:6px; color:#f87171;"></i> National</span>
+            <strong>112</strong>
+          </a>
+        </div>
+
+        <button type="button" class="nc-btn-primary" id="shareLocation" style="width:100%;">
+          <i data-lucide="share-2"></i> Share My Current GPS Location
+        </button>
+      </div>
+
+      <form class="nc-surface-card" id="contactForm">
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> TRUSTED CONTACTS</div>
+        <h3 style="margin:0 0 6px; color:#fff; font-size:19px;">Personal Emergency Contacts</h3>
+        <p style="margin:0 0 18px; font-size:13px; color:#95aba0;">Saved in your browser for quick one-tap calling during an emergency.</p>
+
+        <div class="nc-field">
+          <label for="emgContactName">Contact Name *</label>
+          <input class="nc-input" id="emgContactName" name="name" required placeholder="e.g. Family Member / Neighbour" />
+        </div>
+        <div class="nc-field">
+          <label for="emgContactPhone">Phone Number *</label>
+          <input class="nc-input" id="emgContactPhone" name="phone" type="tel" required placeholder="10-digit mobile number" />
+        </div>
+        <button class="nc-btn-primary" type="submit" style="width:100%;">
+          <i data-lucide="plus"></i> Save Emergency Contact
+        </button>
+        <div id="contactList" style="margin-top:18px; display:flex; flex-direction:column; gap:10px;"></div>
+      </form>
+    </div>
+  `;
+}
+
+// PAGE 5: LOCAL SERVICES — Searchable professional directory with Lucide category icons (NO human photos/avatars)
+function localView() {
+  const categories = [
+    "Plumber",
+    "Electrician",
+    "Carpenter",
+    "Mechanic",
+    "AC repair",
+    "Painter",
+    "Home cleaning",
+    "Computer repair",
+    "Medical store",
+    "Grocery"
+  ];
+
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> SKILLED TRADES &amp; SERVICES</div>
+        <h1>Local <em>Services</em></h1>
+        <p>Find electricians, plumbers, mechanics, and technicians around you. Contact service professionals directly via phone call or WhatsApp.</p>
+      </div>
+      <button type="button" class="btn-neon-primary" id="openProviderInline">
+        <i data-lucide="plus"></i> Register Your Service
+      </button>
+    </div>
+
+    <div class="nc-toolbar">
+      <input class="nc-input" id="providerSearch" type="search" placeholder="Search electrician, plumber, mechanic, area, or contact name…" />
+      <select class="nc-select" id="providerCategory">
+        <option value="">All categories</option>
+        ${categories.map((x) => `<option value="${x}">${x}</option>`).join("")}
+      </select>
+    </div>
+
+    <div class="nc-pills-row" id="localCatPills" role="group" aria-label="Service category quick filters">
+      <button type="button" class="nc-pill-btn active" data-lcat="">All</button>
+      ${categories
+        .map(
+          (x) =>
+            `<button type="button" class="nc-pill-btn" data-lcat="${x}"><i data-lucide="${getCategoryIcon(x)}"></i> ${x}</button>`
+        )
+        .join("")}
+    </div>
+
+    <div class="nc-cards-grid" id="providerResults"></div>
+  `;
+}
+
+// PAGE 6: DIGITAL QUEUE — Token booking, honest prototype demo wait estimate & live demo ticket
+function queueView() {
+  const defaultName = escapeHtml(currentUser?.name || "");
+  return `
+    <div class="nc-page-head">
+      <div>
+        <div class="nc-eyebrow"><span class="eyebrow-bar"></span> VIRTUAL TOKEN SIMULATION</div>
+        <h1>Digital <em>Queue</em></h1>
+        <p>Book a queue token for participating health centres and civic counters to reduce physical waiting time.</p>
+      </div>
+    </div>
+
+    <div class="nc-demo-banner" role="note">
+      <i data-lucide="info" style="margin-top:2px;"></i>
+      <div><strong>Prototype Demo Queue:</strong> Wait times and token numbers below are simulated locally for demonstration and do not connect to a live hospital counter system.</div>
+    </div>
+
+    <div class="nc-two-col">
+      <form class="nc-surface-card" id="queueForm">
+        <h3 style="margin:0 0 16px; color:#fff; font-size:19px;">Book a Demo Queue Token</h3>
+        <div class="nc-field">
+          <label for="queueCentre">Participating Service Centre *</label>
+          <select class="nc-select" id="queueCentre" name="centre" required>
+            <option value="">Select centre</option>
+            <option>Community Health Centre (Demo)</option>
+            <option>Primary Health Unit (Demo)</option>
+            <option>Taluk Citizen Service Desk (Demo)</option>
+          </select>
+        </div>
+        <div class="nc-field">
+          <label for="queueDept">Department / Counter *</label>
+          <select class="nc-select" id="queueDept" name="department" required>
+            <option value="">Select department</option>
+            ${["General Medicine","Cardiology","Orthopedics","Dermatology","Ophthalmology","ENT","Dentistry","Pediatrics","Revenue / Certificates Desk"].map((x) => `<option>${x}</option>`).join("")}
+          </select>
+        </div>
+        <div class="nc-field">
+          <label for="queueName">Visitor Full Name *</label>
+          <input class="nc-input" id="queueName" name="name" required value="${defaultName}" placeholder="Enter visitor name" />
+        </div>
+        <button class="nc-btn-primary" type="submit" style="width:100%; padding:12px;">
+          <i data-lucide="ticket"></i> Generate Demo Token
+        </button>
+      </form>
+
+      <div class="nc-surface-card">
+        <h3 style="margin:0 0 12px; color:#fff; font-size:19px;">Active Token Status</h3>
+        <div id="ticketResult"></div>
+      </div>
+    </div>
+  `;
 }
 
 // Authentication View: Login and Register page
@@ -1161,6 +1827,7 @@ function bindAuthModule(){
     currentUser = null;
     localStorage.removeItem("namma_user");
     localStorage.removeItem("namma_token");
+    localStorage.removeItem("namma_donor_token");
     updateAuthUI();
     toast("You have signed out successfully.");
     showModule("auth");
@@ -1175,9 +1842,304 @@ function bindAuthModule(){
   });
 }
 
+function matchesHospitalSpecialty(item, spec) {
+  if (!spec || spec === "all") return true;
+  const text = `${item.name || ""} ${item.area || ""}`.toLowerCase();
+  if (spec === "clinic") {
+    return /(clinic|phc|primary|health\s*cent|dispensary|polyclinic|ayur|homeo)/i.test(text);
+  }
+  if (spec === "dental_eye") {
+    return /(eye|dental|ent|netra|ophthalm|vision|tooth|ortho|skin|derma)/i.test(text);
+  }
+  if (spec === "maternity") {
+    return /(maternity|child|women|pediatric|paediatric|nursing\s*home|mother)/i.test(text);
+  }
+  return /(hospital|medical|general|taluk|district|multi|super|care|emergency|government)/i.test(text);
+}
+
+function renderHospitalFinder() {
+  const container = $("#hospitalResults");
+  const badge = $("#hospitalCountBadge");
+  if (!container) return;
+
+  if (!currentLocation) {
+    if (badge) badge.textContent = "Location required";
+    container.innerHTML = `
+      <div class="nc-empty-box">
+        <i data-lucide="map-pin" style="width:30px;height:30px;color:#4ade80;"></i>
+        <h3>Set your location to find nearby hospitals</h3>
+        <p>Allow GPS access or enter your town manually to fetch live hospital listings around you.</p>
+        <button type="button" class="btn-neon-primary" id="hospPromptGpsBtn">Detect My Location</button>
+      </div>
+    `;
+    $("#hospPromptGpsBtn")?.addEventListener("click", () => getCurrentLocation(false));
+    refreshIcons();
+    return;
+  }
+
+  if (isFetchingFacilities) {
+    if (badge) badge.textContent = "Fetching live data…";
+    container.innerHTML = `
+      <div class="nc-empty-box">
+        <div class="bd-spinner" aria-hidden="true"></div>
+        <h3>Searching nearby hospitals…</h3>
+        <p>Fetching live OpenStreetMap medical facilities around ${escapeHtml(currentLocationName || "your location")}.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const q = ($("#hospitalSearchInput")?.value || "").toLowerCase().trim();
+  const filtered = liveHospitals.filter((h) => {
+    const qMatch = !q || `${h.name} ${h.area} ${h.phone || ""}`.toLowerCase().includes(q);
+    return qMatch && matchesHospitalSpecialty(h, currentHospitalSpecialty);
+  });
+
+  if (badge) {
+    badge.textContent = `${filtered.length} hospital${filtered.length === 1 ? "" : "s"} found`;
+  }
+
+  // Render or refresh embedded Leaflet Hospital Finder Map
+  const mapEl = $("#hospitalFinderMap");
+  if (mapEl && window.L) {
+    if (!hospitalFinderMap) {
+      hospitalFinderMap = L.map("hospitalFinderMap").setView([currentLocation.lat, currentLocation.lng], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap"
+      }).addTo(hospitalFinderMap);
+    } else {
+      hospitalFinderMap.setView([currentLocation.lat, currentLocation.lng], 13);
+      hospitalFinderMap.eachLayer((layer) => {
+        if (layer instanceof L.CircleMarker || layer instanceof L.Marker) {
+          hospitalFinderMap.removeLayer(layer);
+        }
+      });
+    }
+
+    L.circleMarker([currentLocation.lat, currentLocation.lng], {
+      radius: 8,
+      color: "#ffffff",
+      weight: 2.5,
+      fillColor: "#22c55e",
+      fillOpacity: 1
+    })
+      .addTo(hospitalFinderMap)
+      .bindPopup("<b>Your Location</b>");
+
+    filtered.forEach((h) => {
+      if (h.lat && h.lng) {
+        L.circleMarker([h.lat, h.lng], {
+          radius: 7,
+          color: "#ffffff",
+          weight: 2,
+          fillColor: "#ef4444",
+          fillOpacity: 0.95
+        })
+          .addTo(hospitalFinderMap)
+          .bindPopup(`<b>${escapeHtml(h.name)}</b><br>${escapeHtml(h.distanceText || "")}`);
+      }
+    });
+    setTimeout(() => hospitalFinderMap && hospitalFinderMap.invalidateSize(), 80);
+  }
+
+  if (!filtered.length) {
+    const gMapsHosp = `https://www.google.com/maps/search/hospitals+near+me/@${currentLocation.lat},${currentLocation.lng},14z`;
+    container.innerHTML = `
+      <div class="nc-empty-box">
+        <i data-lucide="hospital" style="width:30px;height:30px;color:#4ade80;"></i>
+        <h3>No hospitals matched this filter</h3>
+        <p>Try switching to "All Specialties", clearing the search text, or checking Google Maps around ${escapeHtml(currentLocationName || "your area")}.</p>
+        <a href="${gMapsHosp}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary">Open on Google Maps ↗</a>
+      </div>
+    `;
+    refreshIcons();
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="nc-cards-grid">
+      ${filtered
+        .map((h, idx) => {
+          const cleanPhone = (h.phone || "").replace(/[^0-9+]/g, "");
+          const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lng}`;
+          return `
+            <article class="nc-item-card">
+              <div class="nc-card-head">
+                <div class="nc-cat-icon-box"><i data-lucide="hospital"></i></div>
+                <div style="flex:1; min-width:0;">
+                  <h3 class="nc-card-title">${escapeHtml(h.name)}</h3>
+                  <p class="nc-card-sub"><i data-lucide="map-pin"></i> ${escapeHtml(h.area || "Local Area")}</p>
+                </div>
+              </div>
+
+              <div class="nc-badges-row">
+                <span class="nc-badge green"><i data-lucide="navigation"></i> ${escapeHtml(h.distanceText || "Nearby")}</span>
+                ${cleanPhone ? `<span class="nc-badge"><i data-lucide="phone"></i> ${escapeHtml(h.phone)}</span>` : `<span class="nc-badge">Ambulance: 108</span>`}
+              </div>
+
+              <div class="nc-card-actions">
+                <button type="button" class="nc-btn-primary" data-view-hospital-idx="${idx}">
+                  <i data-lucide="file-text"></i> View Details
+                </button>
+                <a href="${dirUrl}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary">
+                  <i data-lucide="navigation"></i> Directions
+                </a>
+                ${cleanPhone ? `<a href="tel:${escapeHtml(cleanPhone)}" class="nc-btn-secondary" title="Call hospital"><i data-lucide="phone"></i></a>` : ""}
+              </div>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+
+  $$("[data-view-hospital-idx]", container).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const item = filtered[Number(btn.dataset.viewHospitalIdx)];
+      if (item) {
+        selectedHospital = item;
+        showModule("hospital-detail");
+      }
+    });
+  });
+
+  refreshIcons();
+}
+
+function renderEmergencyContactsList() {
+  const list = $("#contactList");
+  if (!list) return;
+  if (!emergencyContacts.length) {
+    list.innerHTML = `<p style="margin:0; font-size:13px; color:#7c9487;">No saved emergency contacts yet.</p>`;
+    return;
+  }
+  list.innerHTML = emergencyContacts
+    .map((c, idx) => {
+      const tel = String(c.phone || "").replace(/[^0-9+]/g, "");
+      return `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 13px; border-radius:10px; background:#09150f; border:1px solid rgba(255,255,255,0.08);">
+          <div>
+            <strong style="display:block; color:#fff; font-size:14px;">${escapeHtml(c.name)}</strong>
+            <span style="font-size:12.5px; color:#8ea598;">${escapeHtml(c.phone)}</span>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <a href="tel:${escapeHtml(tel)}" class="nc-btn-primary" style="padding:7px 11px; font-size:12px;"><i data-lucide="phone"></i> Call</a>
+            <button type="button" class="nc-btn-ghost-danger" style="padding:7px 9px;" data-del-emg="${idx}" aria-label="Remove contact">×</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  $$("[data-del-emg]", list).forEach((b) => {
+    b.addEventListener("click", () => {
+      emergencyContacts.splice(Number(b.dataset.delEmg), 1);
+      renderEmergencyContactsList();
+    });
+  });
+  refreshIcons();
+}
+
+function renderQueueTicket() {
+  const box = $("#ticketResult");
+  if (!box) return;
+  if (!activeQueueToken) {
+    box.innerHTML = `
+      <div class="nc-empty-box" style="padding:32px 16px;">
+        <i data-lucide="ticket" style="width:28px;height:28px;color:#4ade80;"></i>
+        <h3>No active token</h3>
+        <p style="margin-bottom:0;">Fill in the form to generate a simulated demo queue token.</p>
+      </div>
+    `;
+    refreshIcons();
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="nc-token-receipt">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <span class="nc-badge amber"><i data-lucide="flask-conical"></i> Demo Simulation Token</span>
+        <span class="nc-badge green">Issued</span>
+      </div>
+      <div class="nc-token-num">#${escapeHtml(activeQueueToken.token)}</div>
+      <p style="margin:0 0 6px; font-size:15px; font-weight:700; color:#fff;">${escapeHtml(activeQueueToken.centre)}</p>
+      <p style="margin:0 0 12px; font-size:13.5px; color:#9cb2a6;">
+        ${escapeHtml(activeQueueToken.department)} · Visitor: ${escapeHtml(activeQueueToken.name)}
+      </p>
+      <div class="nc-badges-row" style="margin-bottom:14px;">
+        <span class="nc-badge"><i data-lucide="clock"></i> Simulated wait: ${activeQueueToken.waitMins} mins</span>
+        <span class="nc-badge">Issued at ${escapeHtml(activeQueueToken.issuedAt)}</span>
+      </div>
+      <button type="button" class="nc-btn-ghost-danger" id="cancelQueueTokenBtn">Cancel Demo Token</button>
+    </div>
+  `;
+
+  $("#cancelQueueTokenBtn")?.addEventListener("click", () => {
+    activeQueueToken = null;
+    renderQueueTicket();
+    toast("Demo queue token cancelled.");
+  });
+  refreshIcons();
+}
+
 function bindModule(page){
 
+  if (page === "hospitals") {
+    renderHospitalFinder();
+    $("#hospitalSearchInput")?.addEventListener("input", renderHospitalFinder);
+    $("#hospitalGpsBtn")?.addEventListener("click", () => getCurrentLocation(false));
+    $$("[data-hspec]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentHospitalSpecialty = btn.dataset.hspec || "all";
+        $$("[data-hspec]").forEach((b) => b.classList.toggle("active", b === btn));
+        renderHospitalFinder();
+      });
+    });
+  }
+
+  if (page === "hospital-detail") {
+    $("#backToHospitalsBtn")?.addEventListener("click", () => showModule("hospitals"));
+    $("#backToHospitalsEmpty")?.addEventListener("click", () => showModule("hospitals"));
+    $("#detailBookQueueBtn")?.addEventListener("click", () => showModule("queue"));
+
+    const h = selectedHospital || liveHospitals[0];
+    const mapEl = $("#hospitalDetailMap");
+    if (h && mapEl && window.L && h.lat && h.lng) {
+      hospitalDetailMap = L.map("hospitalDetailMap").setView([h.lat, h.lng], 15);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap"
+      }).addTo(hospitalDetailMap);
+
+      L.circleMarker([h.lat, h.lng], {
+        radius: 9,
+        color: "#ffffff",
+        weight: 2.5,
+        fillColor: "#ef4444",
+        fillOpacity: 1
+      })
+        .addTo(hospitalDetailMap)
+        .bindPopup(`<b>${escapeHtml(h.name)}</b>`)
+        .openPopup();
+
+      setTimeout(() => hospitalDetailMap && hospitalDetailMap.invalidateSize(), 80);
+    }
+  }
+
   if(page==="public"){
+    // Switch between Public Info tabs (Facilities, Schemes, Helplines, Documents)
+    $$("[data-pub-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentPublicInfoTab = btn.dataset.pubTab;
+        $$("[data-pub-tab]").forEach((b) => b.classList.toggle("active", b === btn));
+        $("#pubTabFacilities")?.classList.toggle("hidden", currentPublicInfoTab !== "facilities");
+        $("#pubTabSchemes")?.classList.toggle("hidden", currentPublicInfoTab !== "schemes");
+        $("#pubTabHelplines")?.classList.toggle("hidden", currentPublicInfoTab !== "helplines");
+        $("#pubTabDocuments")?.classList.toggle("hidden", currentPublicInfoTab !== "documents");
+        if (currentPublicInfoTab === "facilities") renderFacilities();
+        refreshIcons();
+      });
+    });
+
     renderFacilities();
     $("#facilitySearch")?.addEventListener("input", renderFacilities);
     $("#facilityType")?.addEventListener("change", (e) => {
@@ -1187,7 +2149,7 @@ function bindModule(page){
       });
       renderFacilities();
     });
-    $("#facilityGps").onclick = () => getCurrentLocation(false);
+    $("#facilityGps")?.addEventListener("click", () => getCurrentLocation(false));
 
     $$(".facility-tab").forEach(tab => {
       tab.addEventListener("click", () => {
@@ -1203,59 +2165,67 @@ function bindModule(page){
   }
 
   if(page==="blood"){
-    renderDonors();
-    $("#donorSearch").onclick=renderDonors;
+    bindBloodDirectoryPage();
+  }
 
-    $("#donorForm").onsubmit=e=>{
-      e.preventDefault();
-      const d=Object.fromEntries(new FormData(e.target));
-      demoDonors.push({
-        name: d.name,
-        group: d.group,
-        area: d.area,
-        phone: d.phone,
-        available: "Available on call"
-      });
-      e.target.reset();
-      renderDonors();
-      toast("Donor registered successfully! Contact number is available for direct calling.");
-    };
+  if(page==="blood-register"){
+    bindBloodRegisterPage();
   }
 
   if(page==="emergency"){
-    $("#shareLocation").onclick=shareLocation;
-    $("#sosButton").onclick=shareLocation;
+    $("#shareLocation")?.addEventListener("click", shareLocation);
+    $("#sosButton")?.addEventListener("click", shareLocation);
+    renderEmergencyContactsList();
 
-    $("#contactForm").onsubmit=e=>{
+    $("#contactForm")?.addEventListener("submit", (e) => {
       e.preventDefault();
-      const d=Object.fromEntries(new FormData(e.target));
-      const list=$("#contactList");
-      const row=document.createElement("p");
-      row.textContent=`${d.name} · ${d.phone}`;
-      list.append(row);
+      const d = Object.fromEntries(new FormData(e.target));
+      if (!d.name || !d.phone) return;
+      emergencyContacts.push({ name: d.name.trim(), phone: d.phone.trim() });
       e.target.reset();
-      toast("Contact added for this session.");
-    };
+      renderEmergencyContactsList();
+      toast("Emergency contact saved for this session.");
+    });
   }
 
   if(page==="local"){
     renderProviders();
-    $("#providerSearch").oninput=renderProviders;
-    $("#providerCategory").onchange=renderProviders;
-    $("#openProviderInline").onclick=()=>openModal("providerModal");
+    $("#providerSearch")?.addEventListener("input", renderProviders);
+    $("#providerCategory")?.addEventListener("change", (e) => {
+      const val = e.target.value || "";
+      $$("[data-lcat]").forEach((p) => p.classList.toggle("active", (p.dataset.lcat || "") === val));
+      renderProviders();
+    });
+    $$("[data-lcat]").forEach((pill) => {
+      pill.addEventListener("click", () => {
+        const val = pill.dataset.lcat || "";
+        if ($("#providerCategory")) $("#providerCategory").value = val;
+        $$("[data-lcat]").forEach((p) => p.classList.toggle("active", p === pill));
+        renderProviders();
+      });
+    });
+    $("#openProviderInline")?.addEventListener("click", () => openModal("providerModal"));
   }
 
-  if(page==="queue")
-    $("#queueForm").onsubmit=e=>{
+  if(page==="queue") {
+    renderQueueTicket();
+    $("#queueForm")?.addEventListener("submit", (e) => {
       e.preventDefault();
-      const token=Math.floor(100+Math.random()*900);
-      $("#ticketResult").innerHTML=`<div class="queue-ticket">
-      <span>YOUR DEMO TOKEN</span>
-      <strong>#${token}</strong>
-      <p>${new FormData(e.target).get("department")} · Estimated wait: 15–25 min (sample only)</p>
-      </div>`;
-      toast("Demo token generated.");
-    };
+      const fd = new FormData(e.target);
+      const token = Math.floor(100 + Math.random() * 900);
+      const waitMins = 12 + Math.floor(Math.random() * 18);
+      activeQueueToken = {
+        token,
+        centre: fd.get("centre"),
+        department: fd.get("department"),
+        name: fd.get("name"),
+        waitMins,
+        issuedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      };
+      renderQueueTicket();
+      toast("Demo queue token generated.");
+    });
+  }
 
   if(page==="auth"){
     bindAuthModule();
@@ -1315,7 +2285,23 @@ function renderFacilities(){
     return queryMatch && typeMatch;
   };
 
-  const hospitals = liveHospitals.filter(matches);
+  const matchesSpecialty = (item) => {
+    if (!currentHospitalSpecialty || currentHospitalSpecialty === "all") return true;
+    const text = `${item.name || ""} ${item.area || ""}`.toLowerCase();
+    if (currentHospitalSpecialty === "clinic") {
+      return /(clinic|phc|primary|health\s*cent|dispensary|polyclinic|ayur|homeo)/i.test(text);
+    }
+    if (currentHospitalSpecialty === "dental_eye") {
+      return /(eye|dental|ent|netra|ophthalm|vision|tooth|ortho|skin|derma)/i.test(text);
+    }
+    if (currentHospitalSpecialty === "maternity") {
+      return /(maternity|child|women|pediatric|paediatric|nursing\s*home|mother)/i.test(text);
+    }
+    // general & multi-specialty
+    return /(hospital|medical|general|taluk|district|multi|super|care|emergency|government)/i.test(text);
+  };
+
+  const hospitals = liveHospitals.filter((item) => matches(item) && matchesSpecialty(item));
   const policeStations = livePolice.filter(matches);
   const fireStations = liveFire.filter(matches);
   const governmentOffices = liveGovernment.filter(matches);
@@ -1755,148 +2741,846 @@ function renderFacilities(){
   container.innerHTML = html;
 }
 
-function renderDonors(){
-  const g=$("#bloodGroup")?.value||"";
-  const a=($("#donorArea")?.value||"").toLowerCase();
+function showBdAlert(el, type, message) {
+  if (!el) return;
+  if (!message) {
+    el.className = "bd-inline-alert hidden";
+    el.textContent = "";
+    return;
+  }
+  el.className = `bd-inline-alert ${type}`;
+  el.textContent = message;
+}
 
-  const list=demoDonors.filter(x=>
-    (!g||x.group===g)&&(!a||x.area.toLowerCase().includes(a))
-  );
+function stopDonorOtpTimer() {
+  if (donorOtpTimerInterval) {
+    clearInterval(donorOtpTimerInterval);
+    donorOtpTimerInterval = null;
+  }
+}
 
+function updateDonorOtpCountdownUI() {
+  if (!pendingDonorOtpState) {
+    stopDonorOtpTimer();
+    return;
+  }
+  const expiryEl = $("#bdOtpExpiryText");
+  const resendBtn = $("#bdResendOtpBtn");
+  const resendLeftEl = $("#bdOtpResendLeft");
+
+  const now = Date.now();
+  const remExpirySec = Math.max(0, Math.ceil((pendingDonorOtpState.expiresAt - now) / 1000));
+  const remCooldownSec = Math.max(0, Math.ceil((pendingDonorOtpState.cooldownUntil - now) / 1000));
+
+  if (expiryEl) {
+    if (remExpirySec > 0) {
+      const m = String(Math.floor(remExpirySec / 60)).padStart(2, "0");
+      const s = String(remExpirySec % 60).padStart(2, "0");
+      expiryEl.textContent = `OTP expires in ${m}:${s}`;
+    } else {
+      expiryEl.textContent = "OTP expired — please resend";
+    }
+  }
+
+  if (resendLeftEl) {
+    const left = pendingDonorOtpState.remainingResends ?? 0;
+    resendLeftEl.textContent = `${left} resend${left === 1 ? "" : "s"} left in window`;
+  }
+
+  if (resendBtn) {
+    if ((pendingDonorOtpState.remainingResends ?? 0) <= 0) {
+      resendBtn.disabled = true;
+      resendBtn.textContent = "Resend limit reached";
+    } else if (remCooldownSec > 0) {
+      resendBtn.disabled = true;
+      resendBtn.textContent = `Resend in ${remCooldownSec}s`;
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.textContent = "Resend OTP";
+    }
+  }
+}
+
+function renderOtpStepUI() {
+  const regForm = $("#donorForm");
+  const otpForm = $("#donorOtpForm");
+  const step1Chip = $("#bdStep1Chip");
+  const step2Chip = $("#bdStep2Chip");
+  const modeBanner = $("#bdOtpModeBanner");
+  const maskedEl = $("#bdOtpMaskedPhone");
+
+  if (!regForm || !otpForm) return;
+
+  if (pendingDonorOtpState) {
+    regForm.classList.add("hidden");
+    otpForm.classList.remove("hidden");
+    if (step1Chip) {
+      step1Chip.classList.remove("active");
+      step1Chip.classList.add("done");
+    }
+    if (step2Chip) step2Chip.classList.add("active");
+    if (maskedEl) maskedEl.textContent = pendingDonorOtpState.maskedPhone || "";
+
+    if (modeBanner) {
+      if (pendingDonorOtpState.verificationMode === "sms") {
+        modeBanner.className = "nc-demo-banner";
+        modeBanner.style.background = "rgba(34, 197, 94, 0.1)";
+        modeBanner.style.borderColor = "rgba(34, 197, 94, 0.3)";
+        modeBanner.style.color = "#bbf7d0";
+        modeBanner.innerHTML =
+          "<strong>SMS Verification Active:</strong> A 6-digit OTP has been dispatched via your configured SMS provider.";
+      } else {
+        modeBanner.className = "nc-demo-banner";
+        modeBanner.innerHTML =
+          "<strong>Development Demo OTP Mode (Not Real SMS):</strong> No SMS provider credentials are configured in <code>.env</code>. Retrieve the 6-digit demo OTP from your <strong>backend server terminal</strong>. Configure Twilio, 2Factor, or Fast2SMS for live SMS delivery.";
+      }
+    }
+
+    stopDonorOtpTimer();
+    updateDonorOtpCountdownUI();
+    donorOtpTimerInterval = setInterval(updateDonorOtpCountdownUI, 1000);
+  } else {
+    stopDonorOtpTimer();
+    regForm.classList.remove("hidden");
+    otpForm.classList.add("hidden");
+    if (step1Chip) {
+      step1Chip.classList.add("active");
+      step1Chip.classList.remove("done");
+    }
+    if (step2Chip) step2Chip.classList.remove("active");
+  }
+}
+
+function getOtpFromBoxes() {
+  return $$("#bdOtpBoxes .bd-otp-digit")
+    .map((el) => el.value.trim())
+    .join("");
+}
+
+function clearOtpBoxes() {
+  $$("#bdOtpBoxes .bd-otp-digit").forEach((el) => {
+    el.value = "";
+    el.classList.remove("filled");
+  });
+}
+
+function bindOtpDigitBoxes() {
+  const boxes = $$("#bdOtpBoxes .bd-otp-digit");
+  boxes.forEach((box, idx) => {
+    box.addEventListener("input", (e) => {
+      const digits = (e.target.value || "").replace(/\D/g, "");
+      if (digits.length > 1) {
+        // Handle autofill or multi-char paste
+        digits.slice(0, 6).split("").forEach((ch, offset) => {
+          if (boxes[offset]) {
+            boxes[offset].value = ch;
+            boxes[offset].classList.add("filled");
+          }
+        });
+        const focusIdx = Math.min(digits.length, 5);
+        boxes[focusIdx]?.focus();
+        return;
+      }
+      box.value = digits;
+      box.classList.toggle("filled", Boolean(digits));
+      if (digits && boxes[idx + 1]) {
+        boxes[idx + 1].focus();
+      }
+    });
+
+    box.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !box.value && boxes[idx - 1]) {
+        boxes[idx - 1].value = "";
+        boxes[idx - 1].classList.remove("filled");
+        boxes[idx - 1].focus();
+      } else if (e.key === "ArrowLeft" && boxes[idx - 1]) {
+        boxes[idx - 1].focus();
+      } else if (e.key === "ArrowRight" && boxes[idx + 1]) {
+        boxes[idx + 1].focus();
+      }
+    });
+
+    box.addEventListener("paste", (e) => {
+      const text = (e.clipboardData || window.clipboardData)?.getData("text") || "";
+      const digits = text.replace(/\D/g, "").slice(0, 6);
+      if (!digits) return;
+      e.preventDefault();
+      digits.split("").forEach((ch, offset) => {
+        if (boxes[offset]) {
+          boxes[offset].value = ch;
+          boxes[offset].classList.add("filled");
+        }
+      });
+      const focusIdx = Math.min(digits.length, 5);
+      boxes[focusIdx]?.focus();
+    });
+  });
+}
+
+function bindReportDonorModalOnce() {
+  if (donorReportBound) return;
+  donorReportBound = true;
+  $("#reportDonorForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const donorId = $("#reportDonorId")?.value;
+    const reason = form.querySelector("input[name='reason']:checked")?.value;
+    const details = $("#reportDonorDetails")?.value.trim() || "";
+    const alertEl = $("#reportDonorAlert");
+    const submitBtn = $("#reportDonorSubmit");
+
+    showBdAlert(alertEl, "", "");
+    if (!donorId || !reason) {
+      showBdAlert(alertEl, "error", "Please select a reason for reporting this profile.");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting…";
+
+    try {
+      const { res, data } = await donorApiFetch(`/api/donors/${encodeURIComponent(donorId)}/report`, {
+        method: "POST",
+        body: JSON.stringify({ reason, details })
+      });
+
+      if (!res.ok || !data.success) {
+        showBdAlert(alertEl, "error", data.message || "Could not submit report.");
+        return;
+      }
+
+      toast(data.message || "Report submitted.");
+      form.reset();
+      closeModal("reportDonorModal");
+      if (data.temporarilyHidden) {
+        loadDonorsDirectory();
+      }
+    } catch (err) {
+      showBdAlert(alertEl, "error", err.message || "Network error while submitting report.");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit Report";
+    }
+  });
+}
+
+function bindBloodDirectoryPage() {
+  $("#openDonorRegPageBtn")?.addEventListener("click", () => showModule("blood-register"));
+
+  $$("[data-bg-chip]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const val = chip.dataset.bgChip || "";
+      if ($("#bloodGroup")) $("#bloodGroup").value = val;
+      $$("[data-bg-chip]").forEach((c) => c.classList.toggle("crimson-active", c === chip));
+      loadDonorsDirectory();
+    });
+  });
+
+  $("#donorSearch")?.addEventListener("click", loadDonorsDirectory);
+  $("#donorAvailableOnly")?.addEventListener("change", loadDonorsDirectory);
+  $("#donorArea")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      loadDonorsDirectory();
+    }
+  });
+  $("#donorReset")?.addEventListener("click", () => {
+    if ($("#bloodGroup")) $("#bloodGroup").value = "";
+    $$("[data-bg-chip]").forEach((c) => c.classList.toggle("crimson-active", (c.dataset.bgChip || "") === ""));
+    if ($("#donorArea")) $("#donorArea").value = "";
+    if ($("#donorAvailableOnly")) $("#donorAvailableOnly").checked = false;
+    loadDonorsDirectory();
+  });
+
+  bindReportDonorModalOnce();
+  loadMyDonorProfiles();
+  loadDonorsDirectory();
+}
+
+function bindBloodRegisterPage() {
+  $("#backToDonorDirBtn")?.addEventListener("click", () => showModule("blood"));
+  bindOtpDigitBoxes();
+
+  // Step 1: Donor Registration submit -> Request 6-digit OTP
+  $("#donorForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const alertEl = $("#bdRegAlert");
+    const submitBtn = $("#bdRegSubmitBtn");
+    showBdAlert(alertEl, "", "");
+
+    const fullName = form.fullName.value.trim();
+    const bloodGroup = form.querySelector("input[name='bloodGroup']:checked")?.value || "";
+    const phone = form.phone.value.trim();
+    const city = form.city.value.trim();
+    const availableToDonate = form.querySelector("input[name='availableToDonate']:checked")?.value === "true";
+    const consentToShareContact = Boolean($("#bdConsent")?.checked);
+
+    if (fullName.length < 2) {
+      showBdAlert(alertEl, "error", "Please enter your full name (at least 2 characters).");
+      return;
+    }
+    if (!bloodGroup) {
+      showBdAlert(alertEl, "error", "Please choose your blood group.");
+      return;
+    }
+    if (phone.replace(/\D/g, "").length < 10) {
+      showBdAlert(alertEl, "error", "Please enter a valid 10-digit mobile number.");
+      return;
+    }
+    if (city.length < 2) {
+      showBdAlert(alertEl, "error", "Please enter your city or location.");
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Sending OTP…";
+
+    try {
+      const { res, data } = await donorApiFetch("/api/donors/register", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName,
+          bloodGroup,
+          phone,
+          city,
+          availableToDonate,
+          consentToShareContact
+        })
+      });
+
+      if (!res.ok || !data.success) {
+        showBdAlert(alertEl, "error", data.message || "Could not send verification OTP.");
+        return;
+      }
+
+      pendingDonorOtpState = {
+        donorId: data.donorId,
+        maskedPhone: data.maskedPhone,
+        expiresAt: Date.now() + (data.expiresInSeconds || 300) * 1000,
+        cooldownUntil: Date.now() + (data.resendCooldownSeconds || 30) * 1000,
+        remainingResends: data.remainingResends ?? 2,
+        verificationMode: data.verificationMode || "dev-demo"
+      };
+
+      clearOtpBoxes();
+      renderOtpStepUI();
+      showBdAlert($("#bdOtpAlert"), "success", data.message);
+      $("#bdOtpBoxes .bd-otp-digit")?.focus();
+      toast(
+        data.verificationMode === "sms"
+          ? "6-digit OTP sent via SMS to your mobile phone."
+          : "Demo OTP Mode: Check backend terminal for 6-digit OTP (configure SMS provider in .env for live SMS)."
+      );
+    } catch (err) {
+      showBdAlert(alertEl, "error", err.message || "Network error while requesting OTP.");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `Send 6-Digit Verification OTP <i data-lucide="arrow-right"></i>`;
+      refreshIcons();
+    }
+  });
+
+  // Step 2: Verify 6-digit OTP
+  $("#donorOtpForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!pendingDonorOtpState) return;
+
+    const alertEl = $("#bdOtpAlert");
+    const verifyBtn = $("#bdVerifyOtpBtn");
+    const otp = getOtpFromBoxes();
+
+    showBdAlert(alertEl, "", "");
+
+    if (!/^\d{6}$/.test(otp)) {
+      showBdAlert(alertEl, "error", "Please enter all 6 digits of your verification OTP.");
+      return;
+    }
+
+    verifyBtn.disabled = true;
+    verifyBtn.textContent = "Verifying…";
+
+    try {
+      const { res, data } = await donorApiFetch("/api/donors/verify-otp", {
+        method: "POST",
+        body: JSON.stringify({
+          donorId: pendingDonorOtpState.donorId,
+          otp
+        })
+      });
+
+      if (!res.ok || !data.success) {
+        showBdAlert(alertEl, "error", data.message || "OTP verification failed.");
+        return;
+      }
+
+      if (data.donorToken) {
+        localStorage.setItem("namma_donor_token", data.donorToken);
+      }
+
+      pendingDonorOtpState = null;
+      stopDonorOtpTimer();
+      $("#donorForm")?.reset();
+      clearOtpBoxes();
+
+      toast("Phone Verified! Your Blood Donor profile is now active.");
+      showModule("blood");
+    } catch (err) {
+      showBdAlert(alertEl, "error", err.message || "Network error during OTP verification.");
+    } finally {
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = "Verify & Activate Profile";
+    }
+  });
+
+  // Resend OTP
+  $("#bdResendOtpBtn")?.addEventListener("click", async () => {
+    if (!pendingDonorOtpState) return;
+    const alertEl = $("#bdOtpAlert");
+    const resendBtn = $("#bdResendOtpBtn");
+    showBdAlert(alertEl, "", "");
+
+    resendBtn.disabled = true;
+    resendBtn.textContent = "Resending…";
+
+    try {
+      const { res, data } = await donorApiFetch("/api/donors/resend-otp", {
+        method: "POST",
+        body: JSON.stringify({ donorId: pendingDonorOtpState.donorId })
+      });
+
+      if (!res.ok || !data.success) {
+        showBdAlert(alertEl, "error", data.message || "Could not resend OTP.");
+        updateDonorOtpCountdownUI();
+        return;
+      }
+
+      pendingDonorOtpState.expiresAt = Date.now() + (data.expiresInSeconds || 300) * 1000;
+      pendingDonorOtpState.cooldownUntil = Date.now() + (data.resendCooldownSeconds || 30) * 1000;
+      pendingDonorOtpState.remainingResends = data.remainingResends ?? 0;
+      pendingDonorOtpState.verificationMode = data.verificationMode || pendingDonorOtpState.verificationMode;
+
+      updateDonorOtpCountdownUI();
+      showBdAlert(alertEl, "success", data.message || "A new OTP has been issued.");
+      toast("New 6-digit OTP issued.");
+    } catch (err) {
+      showBdAlert(alertEl, "error", err.message || "Network error while resending OTP.");
+      updateDonorOtpCountdownUI();
+    }
+  });
+
+  $("#bdBackToRegBtn")?.addEventListener("click", () => {
+    pendingDonorOtpState = null;
+    renderOtpStepUI();
+    showBdAlert($("#bdOtpAlert"), "", "");
+  });
+
+  renderOtpStepUI();
+}
+
+async function loadMyDonorProfiles() {
+  const panel = $("#myDonorPanel");
+  if (!panel) return;
+
+  const hasToken = Boolean(localStorage.getItem("namma_token") || localStorage.getItem("namma_donor_token"));
+  if (!hasToken) {
+    myDonorProfiles = [];
+    panel.classList.add("hidden");
+    panel.innerHTML = "";
+    return;
+  }
+
+  try {
+    const { res, data } = await donorApiFetch("/api/donors/mine", { method: "GET" });
+    if (!res.ok || !data.success || !Array.isArray(data.donors) || data.donors.length === 0) {
+      myDonorProfiles = [];
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+      return;
+    }
+
+    myDonorProfiles = data.donors;
+    panel.classList.remove("hidden");
+    panel.innerHTML = `
+      <div style="font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#4ade80; margin-bottom:10px;">
+        Manage Your Donor Availability
+      </div>
+      ${myDonorProfiles
+        .map(
+          (d) => `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <span class="nc-initials-circle">${escapeHtml(getInitials(d.fullName))}</span>
+            <div>
+              <div style="font-weight:700; font-size:15px; color:#fff;">${escapeHtml(d.fullName)} <span class="nc-badge crimson" style="margin-left:6px;">${escapeHtml(d.bloodGroup)}</span></div>
+              <div style="font-size:12.5px; color:#8ea598; margin-top:3px;">${escapeHtml(d.city)} · ${d.consentToShareContact ? "Contact shared" : "Contact private"}</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="nc-pill-btn ${d.availableToDonate ? "active" : ""}" data-owner-avail-id="${escapeHtml(d.id)}" data-avail-val="true">Available</button>
+            <button type="button" class="nc-pill-btn ${!d.availableToDonate ? "crimson-active" : ""}" data-owner-avail-id="${escapeHtml(d.id)}" data-avail-val="false">Not Available</button>
+          </div>
+        </div>
+        ${
+          d.isTemporarilyHidden
+            ? `<div class="nc-demo-banner" style="margin:12px 0 0;">Notice: Your profile is temporarily hidden from public listings due to multiple community reports.</div>`
+            : ""
+        }
+      `
+        )
+        .join("")}
+    `;
+
+    $$("[data-owner-avail-id]", panel).forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.ownerAvailId;
+        const val = btn.dataset.availVal === "true";
+        updateDonorAvailability(id, val, btn);
+      });
+    });
+    refreshIcons();
+  } catch (_) {
+    panel.classList.add("hidden");
+  }
+}
+
+async function updateDonorAvailability(donorId, availableToDonate, triggerBtn) {
+  if (triggerBtn) triggerBtn.disabled = true;
+  try {
+    const { res, data } = await donorApiFetch(`/api/donors/${encodeURIComponent(donorId)}/availability`, {
+      method: "PATCH",
+      body: JSON.stringify({ availableToDonate })
+    });
+
+    if (!res.ok || !data.success) {
+      toast(data.message || "Only the authenticated profile owner can update availability.");
+      return;
+    }
+
+    toast(data.message || "Availability updated.");
+    await Promise.all([loadMyDonorProfiles(), loadDonorsDirectory()]);
+  } catch (err) {
+    toast(err.message || "Failed to update availability.");
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = false;
+  }
+}
+
+async function loadDonorsDirectory() {
+  const container = $("#donorResults");
+  const countLabel = $("#donorCountLabel");
+  if (!container) return;
+
+  const bloodGroup = $("#bloodGroup")?.value || "";
+  const city = ($("#donorArea")?.value || "").trim();
+  const availableOnly = Boolean($("#donorAvailableOnly")?.checked);
+
+  container.innerHTML = `
+    <div class="nc-empty-box">
+      <div class="bd-spinner" aria-hidden="true"></div>
+      <h3>Loading blood donors…</h3>
+      <p style="margin-bottom:0;">Fetching phone-verified donor listings from MongoDB.</p>
+    </div>
+  `;
+
+  try {
+    const params = new URLSearchParams();
+    if (bloodGroup) params.set("bloodGroup", bloodGroup);
+    if (city) params.set("city", city);
+    if (availableOnly) params.set("available", "true");
+    const qs = params.toString() ? `?${params.toString()}` : "";
+
+    const { res, data } = await donorApiFetch(`/api/donors${qs}`, { method: "GET" });
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || "Unable to load blood donors.");
+    }
+
+    donorDirectoryList = Array.isArray(data.donors) ? data.donors : [];
+    if (countLabel) {
+      countLabel.textContent = `Showing ${donorDirectoryList.length} donor listing${donorDirectoryList.length === 1 ? "" : "s"}`;
+    }
+
+    renderDonorCards();
+  } catch (err) {
+    if (countLabel) countLabel.textContent = "Directory unavailable";
+    container.innerHTML = `
+      <div class="nc-empty-box">
+        <h3>Could not load donor directory</h3>
+        <p>${escapeHtml(err.message)}</p>
+        <button type="button" class="btn-neon-primary" id="bdRetryLoadBtn">Try Again</button>
+      </div>
+    `;
+    $("#bdRetryLoadBtn")?.addEventListener("click", loadDonorsDirectory);
+  }
+}
+
+function renderDonorCards() {
   const container = $("#donorResults");
   if (!container) return;
 
-  container.innerHTML = list.map(x => {
-    const phone = x.phone || "+91 98450 12345";
-    const telDigits = phone.replace(/[^0-9+]/g, '');
-    const cleanDigits = phone.replace(/[^0-9]/g, '');
-    const waNumber = cleanDigits.length === 10 ? ('91' + cleanDigits) : cleanDigits;
-    const waText = encodeURIComponent(`Hello ${x.name}, I found your blood donor contact on NammaConnect. We urgently need ${x.group} blood group in ${x.area}.`);
-    const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
-
-    return `
-      <article class="modern-card blood-theme-card">
-        <div class="card-accent-strip blood-strip"></div>
-        <div class="card-body">
-          <div class="card-top-row">
-            <div class="card-type-tag blood-tag">
-              <span class="live-pulse-dot red-dot"></span>
-              🩸 ${x.group} BLOOD DONOR
-            </div>
-            <div class="card-distance-pill local-loc-pill">
-              📍 ${x.area}
-            </div>
-          </div>
-
-          <h3 class="card-heading">${x.name}</h3>
-          
-          <div class="card-badges-row">
-            <span class="badge-pill">● ${x.available || 'Available on call'}</span>
-            <span class="badge-pill live-src">Verified Donor</span>
-          </div>
-
-          <div class="card-info-box">
-            <div class="info-cell">
-              <span class="cell-label">Donor Phone Number</span>
-              <a href="tel:${telDigits}" class="cell-val red-val">📞 ${phone}</a>
-            </div>
-            <div class="info-divider"></div>
-            <div class="info-cell">
-              <span class="cell-label">Blood Group</span>
-              <span class="cell-val red-val">${x.group}</span>
-            </div>
-          </div>
-
-          <div class="card-actions-row two-btn-grid">
-            <a href="tel:${telDigits}" class="action-btn-primary btn-call-emergency" aria-label="Direct call to ${x.name}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-              Direct Call
-            </a>
-            <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="action-btn-primary btn-whatsapp-primary" aria-label="WhatsApp message to ${x.name}">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
-              WhatsApp
-            </a>
-          </div>
-        </div>
-      </article>
+  if (!donorDirectoryList.length) {
+    container.innerHTML = `
+      <div class="nc-empty-box">
+        <i data-lucide="droplet" style="width:30px;height:30px;color:#f87171;"></i>
+        <h3>No matching blood donors found</h3>
+        <p>Try clearing filters, searching a nearby city, or register as a voluntary donor in this area.</p>
+        <button type="button" class="btn-crimson-solid" id="bdEmptyRegisterBtn"><i data-lucide="plus"></i> Register as Donor</button>
+      </div>
     `;
-  }).join("") || "<p class='no-results-msg'>No donors match your search. Try another blood group or area.</p>";
+    $("#bdEmptyRegisterBtn")?.addEventListener("click", () => showModule("blood-register"));
+    refreshIcons();
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="nc-cards-grid">
+      ${donorDirectoryList
+        .map((d) => {
+          const isAvail = Boolean(d.availableToDonate);
+          const hasContact = Boolean(d.consentToShareContact && d.phone);
+          const initials = getInitials(d.fullName);
+
+          return `
+          <article class="nc-item-card">
+            <div class="nc-card-head">
+              <div class="nc-initials-circle" aria-label="Donor initials ${escapeHtml(initials)}">${escapeHtml(initials)}</div>
+              <div style="flex:1; min-width:0;">
+                <h3 class="nc-card-title">${escapeHtml(d.fullName)}</h3>
+                <p class="nc-card-sub"><i data-lucide="map-pin"></i> ${escapeHtml(d.city)}</p>
+              </div>
+              <span class="nc-badge crimson" style="font-size:14px; font-weight:800; padding:6px 11px;">${escapeHtml(d.bloodGroup)}</span>
+            </div>
+
+            <div class="nc-badges-row">
+              ${
+                d.isPhoneVerified
+                  ? `<span class="nc-badge green" title="Mobile number verified via OTP. Does not confirm blood group or medical eligibility."><i data-lucide="shield-check"></i> Phone Verified</span>`
+                  : ""
+              }
+              <span class="nc-badge ${isAvail ? "green" : ""}">
+                <i data-lucide="${isAvail ? "check-circle-2" : "clock"}"></i>
+                ${isAvail ? "Available" : "Not Available"}
+              </span>
+            </div>
+
+            ${
+              !hasContact
+                ? `<p style="margin:0; font-size:12.5px; color:#839a8e; padding:8px 10px; border-radius:8px; background:#09150f; border:1px dashed rgba(255,255,255,0.1);">Contact number private — donor did not opt in to public phone sharing.</p>`
+                : ""
+            }
+
+            ${
+              d.isOwner
+                ? `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; color:#8ea598;">
+                    <span>Your listing</span>
+                    <button type="button" class="nc-btn-secondary" style="padding:6px 10px; font-size:12px;" data-card-avail-id="${escapeHtml(d.id)}" data-card-avail-next="${!isAvail}">
+                      Mark ${isAvail ? "Not Available" : "Available"}
+                    </button>
+                  </div>`
+                : ""
+            }
+
+            <div class="nc-card-actions">
+              ${
+                hasContact
+                  ? `<button type="button" class="nc-btn-primary" data-contact-donor-id="${escapeHtml(d.id)}">
+                      <i data-lucide="phone"></i> Contact Donor
+                    </button>`
+                  : `<button type="button" class="nc-btn-secondary" disabled style="flex:1; opacity:0.6; cursor:not-allowed;">
+                      <i data-lucide="lock"></i> Contact Private
+                    </button>`
+              }
+              ${
+                !d.isOwner
+                  ? `<button type="button" class="nc-btn-ghost-danger" data-report-donor-id="${escapeHtml(d.id)}" title="Report inaccurate or suspicious profile">
+                      <i data-lucide="flag"></i> Report
+                    </button>`
+                  : ""
+              }
+            </div>
+          </article>
+        `;
+        })
+        .join("")}
+    </div>
+  `;
+
+  $$("[data-contact-donor-id]", container).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const donor = donorDirectoryList.find((x) => String(x.id) === btn.dataset.contactDonorId);
+      if (donor) openContactDonorModal(donor);
+    });
+  });
+
+  $$("[data-report-donor-id]", container).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const donor = donorDirectoryList.find((x) => String(x.id) === btn.dataset.reportDonorId);
+      if (donor) openReportDonorModal(donor);
+    });
+  });
+
+  $$("[data-card-avail-id]", container).forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.cardAvailId;
+      const nextVal = btn.dataset.cardAvailNext === "true";
+      updateDonorAvailability(id, nextVal, btn);
+    });
+  });
+
+  refreshIcons();
 }
 
-// Render Local Services: Modern card design with Salesman, Phone, Direct Call, and WhatsApp options
-function renderProviders(){
+function openContactDonorModal(donor) {
+  if (!donor || !donor.consentToShareContact || !donor.phone) {
+    toast("This donor has not consented to share contact details.");
+    return;
+  }
+
+  const nameEl = $("#contactDonorName");
+  const bodyEl = $("#contactDonorBody");
+  if (!nameEl || !bodyEl) return;
+
+  const telDigits = donor.phone.replace(/[^0-9+]/g, "");
+  const cleanDigits = donor.phone.replace(/\D/g, "");
+  const waNumber = cleanDigits.length === 10 ? "91" + cleanDigits : cleanDigits;
+  const waText = encodeURIComponent(
+    `Hello ${donor.fullName}, I found your blood donor listing on Namma Connect for ${donor.bloodGroup} in ${donor.city}.`
+  );
+  const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
+
+  nameEl.textContent = donor.fullName;
+  bodyEl.innerHTML = `
+    <p class="nc-modal-sub">
+      <span class="nc-badge crimson" style="margin-right:6px;">${escapeHtml(donor.bloodGroup)}</span>
+      <span>${escapeHtml(donor.city)}</span>
+      ${donor.isPhoneVerified ? ` · <span class="nc-badge green" style="margin-left:4px;">Phone Verified</span>` : ""}
+    </p>
+    <div style="background:#09150f; border:1px solid rgba(255,255,255,0.1); border-radius:12px; padding:16px; margin-bottom:16px;">
+      <div style="font-size:11px; font-weight:700; letter-spacing:0.8px; color:#8ea598; margin-bottom:6px;">CONSENTED MOBILE NUMBER</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+        <a href="tel:${escapeHtml(telDigits)}" style="font-size:21px; font-weight:800; color:#4ade80;">${escapeHtml(donor.phone)}</a>
+        <button type="button" class="nc-btn-secondary" style="padding:6px 12px; font-size:12px;" id="bdCopyPhoneBtn">Copy</button>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
+      <a href="tel:${escapeHtml(telDigits)}" class="nc-btn-primary"><i data-lucide="phone"></i> Call Donor</a>
+      <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary"><i data-lucide="message-circle"></i> WhatsApp</a>
+    </div>
+    <div class="nc-safety-banner" style="margin-bottom:0; font-size:12px;">
+      <i data-lucide="shield-alert" style="color:#f87171;"></i>
+      <span>${BLOOD_SAFETY_NOTICE}</span>
+    </div>
+  `;
+
+  $("#bdCopyPhoneBtn")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(donor.phone);
+      const b = $("#bdCopyPhoneBtn");
+      if (b) b.textContent = "Copied";
+      toast("Phone number copied.");
+    } catch (_) {
+      toast("Number: " + donor.phone);
+    }
+  });
+
+  refreshIcons();
+  openModal("contactDonorModal");
+}
+
+function openReportDonorModal(donor) {
+  const form = $("#reportDonorForm");
+  const targetName = $("#reportDonorTargetName");
+  const idInput = $("#reportDonorId");
+  const alertEl = $("#reportDonorAlert");
+  if (!form || !idInput) return;
+
+  form.reset();
+  idInput.value = donor.id;
+  if (targetName) {
+    targetName.textContent = `${donor.fullName} (${donor.bloodGroup}, ${donor.city})`;
+  }
+  showBdAlert(alertEl, "", "");
+  openModal("reportDonorModal");
+}
+
+function renderDonors() {
+  loadDonorsDirectory();
+}
+
+// PAGE 5 RENDERER: Local Services using consistent Lucide Category Icons (ZERO human photos/avatars)
+function renderProviders() {
   const q = ($("#providerSearch")?.value || "").toLowerCase().trim();
   const c = $("#providerCategory")?.value || "";
 
-  const list = demoProviders.filter(x =>
-    (!c || x.category === c) &&
-    (`${x.name} ${x.category} ${x.area} ${x.salesman || ""} ${x.description || ""}`.toLowerCase().includes(q))
+  const list = demoProviders.filter(
+    (x) =>
+      (!c || x.category === c) &&
+      `${x.name} ${x.category} ${x.area} ${x.salesman || ""} ${x.description || ""}`
+        .toLowerCase()
+        .includes(q)
   );
 
   const container = $("#providerResults");
   if (!container) return;
 
-  container.innerHTML = list.map(x => {
-    const salesmanName = x.salesman || x.name;
-    const phone = x.phone || "+91 98451 23456";
-    const telDigits = phone.replace(/[^0-9+]/g, '');
-    const cleanDigits = phone.replace(/[^0-9]/g, '');
-    const waNumber = cleanDigits.length === 10 ? ('91' + cleanDigits) : cleanDigits;
-    const waText = encodeURIComponent(`Hello ${salesmanName}, I saw your ${x.category} service "${x.name}" on NammaConnect and would like to contact you.`);
-    const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
+  if (!list.length) {
+    container.innerHTML = `
+      <div class="nc-empty-box" style="grid-column:1/-1;">
+        <i data-lucide="wrench" style="width:28px;height:28px;color:#4ade80;"></i>
+        <h3>No matching local services</h3>
+        <p style="margin-bottom:0;">Try clearing filters or register a new local service provider.</p>
+      </div>
+    `;
+    refreshIcons();
+    return;
+  }
 
-    return `
-      <article class="modern-card service-theme-card">
-        <div class="card-accent-strip service-strip"></div>
-        <div class="card-body">
-          <div class="card-top-row">
-            <div class="card-type-tag service-tag">
-              <span class="live-pulse-dot green-dot"></span>
-              ${x.category.toUpperCase()}
-            </div>
-            <div class="card-distance-pill local-loc-pill">
-              📍 ${x.area}
-            </div>
-          </div>
+  container.innerHTML = list
+    .map((x) => {
+      const contactName = x.salesman || x.name;
+      const phone = x.phone || "+91 98451 23456";
+      const telDigits = phone.replace(/[^0-9+]/g, "");
+      const cleanDigits = phone.replace(/\D/g, "");
+      const waNumber = cleanDigits.length === 10 ? "91" + cleanDigits : cleanDigits;
+      const waText = encodeURIComponent(
+        `Hello ${contactName}, I found your ${x.category} service "${x.name}" on Namma Connect.`
+      );
+      const waUrl = `https://wa.me/${waNumber}?text=${waText}`;
+      const iconName = getCategoryIcon(x.category);
 
-          <h3 class="card-heading">${x.name}</h3>
-          
-          <div class="salesman-profile-bar">
-            <div class="salesman-avatar">${salesmanName.slice(0, 1).toUpperCase()}</div>
-            <div class="salesman-text">
-              <span class="salesman-role-label">Salesman / Specialist</span>
-              <strong class="salesman-full-name">${salesmanName}</strong>
-            </div>
+      return `
+      <article class="nc-item-card">
+        <div class="nc-card-head">
+          <div class="nc-cat-icon-box"><i data-lucide="${iconName}"></i></div>
+          <div style="flex:1; min-width:0;">
+            <h3 class="nc-card-title">${escapeHtml(x.name)}</h3>
+            <p class="nc-card-sub"><i data-lucide="map-pin"></i> ${escapeHtml(x.area)}</p>
           </div>
+          <span class="nc-badge">${escapeHtml(x.category)}</span>
+        </div>
 
-          <p class="service-desc-text">${x.description}</p>
-          
-          <div class="card-info-box">
-            <div class="info-cell">
-              <span class="cell-label">Phone Contact</span>
-              <a href="tel:${telDigits}" class="cell-val green-val">📞 ${phone}</a>
-            </div>
-            <div class="info-divider"></div>
-            <div class="info-cell">
-              <span class="cell-label">Fast Connect</span>
-              <span class="cell-val">WhatsApp Ready</span>
-            </div>
-          </div>
+        <p style="margin:0; font-size:13.5px; line-height:1.55; color:#9cb2a6;">${escapeHtml(x.description || "")}</p>
 
-          <div class="card-actions-row two-btn-grid">
-            <a href="tel:${telDigits}" class="action-btn-primary btn-call-primary">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-              Direct Call
-            </a>
-            <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="action-btn-primary btn-whatsapp-primary">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
-              WhatsApp
-            </a>
-          </div>
+        <div class="nc-badges-row">
+          <span class="nc-badge"><i data-lucide="briefcase"></i> Contact: ${escapeHtml(contactName)}</span>
+          <span class="nc-badge green"><i data-lucide="phone"></i> ${escapeHtml(phone)}</span>
+        </div>
+
+        <div class="nc-card-actions">
+          <a href="tel:${escapeHtml(telDigits)}" class="nc-btn-primary">
+            <i data-lucide="phone"></i> Direct Call
+          </a>
+          <a href="${waUrl}" target="_blank" rel="noopener noreferrer" class="nc-btn-secondary">
+            <i data-lucide="message-circle"></i> WhatsApp
+          </a>
         </div>
       </article>
     `;
-  }).join("") || "<p class='no-results-msg'>No sample providers match your search.</p>";
+    })
+    .join("");
+
+  refreshIcons();
 }
 
 function shareLocation(){
@@ -1966,45 +3650,139 @@ $("#searchBtn").onclick=()=>{
   }
 
   const pages=[
-    ["public",["hospital","police","fire","ambulance","government","doctor","clinic","cop","safety"]],
+    ["hospitals",["hospital","clinic","medical","eye","dental","maternity","health"]],
+    ["blood-register",["donate blood","register donor","become a donor"]],
     ["blood",["blood","donor"]],
-    ["emergency",["emergency","sos","help"]],
-    ["local",["plumber","electrician","mechanic","carpenter","repair","service","shop","ac","cleaning","medical"]],
-    ["queue",["queue","token","hospital appointment"]],
+    ["emergency",["emergency","sos","ambulance","help"]],
+    ["public",["police","fire","government","scheme","helpline","document","taluk","panchayat","municipal","seva","aadhaar","ration"]],
+    ["local",["plumber","electrician","mechanic","carpenter","repair","service","shop","ac","cleaning","computer","grocery"]],
+    ["queue",["queue","token","appointment"]],
     ["auth",["login","register","signup","sign in","account","profile"]]
   ];
 
   const found=pages.find(([p,terms])=>terms.some(t=>q.includes(t)));
+  const targetPage = found ? found[0] : "local";
 
-  if (q.includes("hospital")) {
-    currentFacilityTab = "Hospital";
-  } else if (q.includes("police")) {
-    currentFacilityTab = "Police";
-  } else if (q.includes("fire")) {
-    currentFacilityTab = "Fire station";
-  } else if (q.includes("government") || q.includes("taluk") || q.includes("panchayat") || q.includes("municipal") || q.includes("office")) {
-    currentFacilityTab = "Government Office";
-  } else {
-    currentFacilityTab = "all";
+  if (targetPage === "public") {
+    if (q.includes("scheme") || q.includes("seva")) currentPublicInfoTab = "schemes";
+    else if (q.includes("helpline")) currentPublicInfoTab = "helplines";
+    else if (q.includes("document") || q.includes("aadhaar") || q.includes("ration")) currentPublicInfoTab = "documents";
+    else currentPublicInfoTab = "facilities";
+
+    if (q.includes("police")) currentFacilityTab = "Police";
+    else if (q.includes("fire")) currentFacilityTab = "Fire station";
+    else if (q.includes("government") || q.includes("taluk") || q.includes("panchayat") || q.includes("municipal")) currentFacilityTab = "Government Office";
+    else currentFacilityTab = "all";
   }
 
-  showModule(found?found[0]:"local");
+  showModule(targetPage);
 
   setTimeout(()=>{
-    const input=$("#providerSearch")||$("#facilitySearch");
-
-    if(input){
+    const input=$("#hospitalSearchInput")||$("#providerSearch")||$("#facilitySearch");
+    if(input && targetPage !== "blood" && targetPage !== "public"){
       input.value=q;
       input.dispatchEvent(new Event("input"));
     }
-  },50);
+  },60);
 };
 
-$("#menuToggle").onclick=()=>toast("Use the service cards below to explore NammaConnect.");
+$("#globalSearch")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    $("#searchBtn")?.click();
+  }
+});
 
-// Initialize Map & Auth
+$("#heroLocationBtn")?.addEventListener("click", () => {
+  getCurrentLocation(false);
+});
+
+$("#menuToggle")?.addEventListener("click", () => {
+  const drawer = $("#mobileNavDrawer");
+  const toggle = $("#menuToggle");
+  if (!drawer) return;
+  const willOpen = drawer.classList.contains("hidden");
+  drawer.classList.toggle("hidden", !willOpen);
+  if (toggle) toggle.setAttribute("aria-expanded", String(willOpen));
+});
+
+// Live Notification Popover (reflects real session & GPS state — zero invented counts)
+function renderNotificationsPopover() {
+  const list = $("#notifList");
+  if (!list) return;
+  const items = [];
+
+  if (currentLocationName) {
+    items.push({
+      title: "Active Location",
+      body: `Live facilities are synced to ${escapeHtml(currentLocationName)}.`
+    });
+  } else {
+    items.push({
+      title: "Location Not Set",
+      body: "Click 'Use My Location' or the top location selector to discover nearby services."
+    });
+  }
+
+  if (currentUser) {
+    items.push({
+      title: `Signed in as ${escapeHtml(currentUser.name)}`,
+      body: "Your MongoDB account is active for donor management and community services."
+    });
+  } else {
+    items.push({
+      title: "Account Status",
+      body: "Sign in to save your profile or manage your verified Blood Donor availability."
+    });
+  }
+
+  if (localStorage.getItem("namma_donor_token")) {
+    items.push({
+      title: "Blood Donor Profile Verified",
+      body: "Your mobile number is phone-verified. Open Blood Donor Directory to toggle availability anytime."
+    });
+  }
+
+  list.innerHTML = items
+    .map(
+      (it) => `
+      <div class="notif-item">
+        <strong>${it.title}</strong>
+        <span>${it.body}</span>
+      </div>`
+    )
+    .join("");
+}
+
+$("#notifBtn")?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const pop = $("#notifPopover");
+  const btn = $("#notifBtn");
+  if (!pop) return;
+  const willOpen = pop.classList.contains("hidden");
+  if (willOpen) renderNotificationsPopover();
+  pop.classList.toggle("hidden", !willOpen);
+  if (btn) btn.setAttribute("aria-expanded", String(willOpen));
+});
+
+$("#notifCloseBtn")?.addEventListener("click", () => {
+  $("#notifPopover")?.classList.add("hidden");
+  $("#notifBtn")?.setAttribute("aria-expanded", "false");
+});
+
+document.addEventListener("click", (e) => {
+  const pop = $("#notifPopover");
+  const wrap = $(".notif-wrap");
+  if (pop && !pop.classList.contains("hidden") && wrap && !wrap.contains(e.target)) {
+    pop.classList.add("hidden");
+    $("#notifBtn")?.setAttribute("aria-expanded", "false");
+  }
+});
+
+// Initialize Map, Auth & Lucide Icons
 initMap();
 updateAuthUI();
+refreshIcons();
 
 // Automatic current location detection on startup
 if (document.readyState === "complete" || document.readyState === "interactive") {
